@@ -4,7 +4,6 @@ from pathlib import Path
 import hashlib
 import shlex
 import subprocess
-import tempfile
 
 from .config import Config
 from .devcontainer import Devcontainer
@@ -47,12 +46,20 @@ def harness_image_name(config: Config, digest: str) -> str:
 
 
 def build_image(
-    config: Config, devcontainer: Devcontainer | None, dry_run: bool = False
+    config: Config,
+    devcontainer: Devcontainer | None,
+    dry_run: bool = False,
+    *,
+    force: bool = False,
 ) -> list[str]:
     del devcontainer
     image = current_managed_image(config, dry_run=dry_run)
     containerfile = harness_containerfile_path(config)
-    return build_tagged_image(config, containerfile, image, dry_run=dry_run)
+    # A forced rebuild also refreshes the base image, since the content-addressed
+    # tag cannot detect upstream base-image or install-script changes on its own.
+    return build_tagged_image(
+        config, containerfile, image, dry_run=dry_run, force=force, pull_newer=force
+    )
 
 
 def build_tagged_image(
@@ -61,27 +68,39 @@ def build_tagged_image(
     image: str,
     *,
     dry_run: bool = False,
+    force: bool = False,
+    pull_newer: bool = False,
 ) -> list[str]:
     context = config.repo_root / ".agentbox"
     exists_cmd = ["podman", "image", "exists", image]
-    cmd = managed_build_command(config, image, containerfile)
+    cmd = managed_build_command(config, image, containerfile, pull_newer=pull_newer)
     if dry_run:
         print(shlex.join(exists_cmd))
         print(shlex.join(cmd))
         return cmd
-    if image_exists(image):
+    if not force and image_exists(image):
         print(f"image {image} already exists; skipping build")
         return exists_cmd
 
     context.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", delete=False) as ignorefile:
-        ignorefile.write("runs\n")
-        ignorefile_path = ignorefile.name
-    try:
-        subprocess.run([*cmd[:2], "--ignorefile", ignorefile_path, *cmd[2:]], check=True)
-    finally:
-        Path(ignorefile_path).unlink(missing_ok=True)
+    ensure_containerignore(context)
+    subprocess.run(cmd, check=True)
     return cmd
+
+
+def ensure_containerignore(context: Path) -> None:
+    """Ensure the build context ignores the run store.
+
+    The context is ``.agentbox``, which also holds per-run clones under
+    ``runs/``. Those must stay out of the build context or every build would
+    copy every saved run. A persistent ``.containerignore`` keeps the dry-run
+    and real build commands identical (podman reads it automatically).
+    """
+    path = context / ".containerignore"
+    lines = path.read_text().splitlines() if path.exists() else []
+    if "runs" not in {line.strip() for line in lines}:
+        lines.append("runs")
+        path.write_text("\n".join(lines) + "\n")
 
 
 def image_exists(image: str) -> bool:
@@ -115,12 +134,41 @@ def ensure_managed_image(config: Config, *, dry_run: bool = False) -> str:
 
 
 def managed_build_command(
-    config: Config, image: str, containerfile: Path | None = None
+    config: Config, image: str, containerfile: Path | None = None, *, pull_newer: bool = False
 ) -> list[str]:
     if containerfile is None:
         containerfile = harness_containerfile_path(config)
     context = config.repo_root / ".agentbox"
-    return ["podman", "build", "-t", image, "-f", str(containerfile), str(context)]
+    cmd = ["podman", "build", "-t", image, "-f", str(containerfile)]
+    if pull_newer:
+        cmd.append("--pull=newer")
+    cmd.append(str(context))
+    return cmd
+
+
+def list_managed_images(config: Config) -> list[str]:
+    result = run(["podman", "images", "--format", "{{.Repository}}:{{.Tag}}"], check=False)
+    if result.returncode != 0:
+        return []
+    images: set[str] = set()
+    for raw in result.stdout.splitlines():
+        line = raw.strip()
+        if not line or ":" not in line:
+            continue
+        repo, _, _tag = line.rpartition(":")
+        # Locally-built images are reported under a "localhost/" namespace, while
+        # the tag agentbox stores is the bare "<image_name>:<digest>".
+        if repo == config.image_name or repo.endswith(f"/{config.image_name}"):
+            images.add(line)
+    return sorted(images)
+
+
+def image_tag(image: str) -> str:
+    return image.rsplit(":", 1)[-1]
+
+
+def remove_image(image: str) -> None:
+    subprocess.run(["podman", "rmi", image], check=True)
 
 
 def ensure_harness_containerfile(

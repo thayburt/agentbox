@@ -52,7 +52,21 @@ def build_parser() -> argparse.ArgumentParser:
     codex_sub = codex.add_subparsers(required=True)
     codex_build = codex_sub.add_parser("build", help="Build the Codex harness image")
     codex_build.add_argument("--dry-run", action="store_true")
+    codex_build.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="Rebuild even if the image exists, refreshing the base image",
+    )
     codex_build.set_defaults(func=cmd_codex_build)
+
+    codex_images = codex_sub.add_parser("images", help="List managed harness images")
+    codex_images.set_defaults(func=cmd_codex_images)
+
+    codex_prune = codex_sub.add_parser(
+        "prune", help="Remove managed harness images not referenced by any run"
+    )
+    codex_prune.add_argument("--dry-run", action="store_true")
+    codex_prune.set_defaults(func=cmd_codex_prune)
 
     codex_run = codex_sub.add_parser("run", help="Run interactive Codex in an isolated clone")
     codex_run.add_argument("prompt", nargs=argparse.REMAINDER)
@@ -140,8 +154,58 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def cmd_codex_build(args: argparse.Namespace) -> int:
     config, devcontainer = context(args)
-    podman.build_image(config, devcontainer, dry_run=args.dry_run)
+    podman.build_image(config, devcontainer, dry_run=args.dry_run, force=args.rebuild)
     return 0
+
+
+def cmd_codex_images(args: argparse.Namespace) -> int:
+    config, _ = context(args)
+    # Compare by tag: metadata stores the bare "<image_name>:<digest>" while
+    # podman may report the same image under a "localhost/" namespace.
+    referenced = {podman.image_tag(m.image) for m in runs.list_runs(config.run_store)}
+    current = current_managed_image_or_none(config)
+    current_tag = podman.image_tag(current) if current else None
+    images = podman.list_managed_images(config)
+    if not images:
+        print("no managed images")
+        return 0
+    for image in images:
+        tag = podman.image_tag(image)
+        labels = []
+        if tag == current_tag:
+            labels.append("current")
+        if tag in referenced:
+            labels.append("referenced")
+        suffix = f"  [{', '.join(labels)}]" if labels else ""
+        print(f"{image}{suffix}")
+    return 0
+
+
+def cmd_codex_prune(args: argparse.Namespace) -> int:
+    config, _ = context(args)
+    keep = {podman.image_tag(m.image) for m in runs.list_runs(config.run_store)}
+    current = current_managed_image_or_none(config)
+    if current:
+        keep.add(podman.image_tag(current))
+    removed = 0
+    for image in podman.list_managed_images(config):
+        if podman.image_tag(image) in keep:
+            continue
+        if args.dry_run:
+            print(shlex.join(["podman", "rmi", image]))
+        else:
+            podman.remove_image(image)
+            print(f"removed {image}")
+        removed += 1
+    if removed == 0:
+        print("no unreferenced managed images to prune")
+    return 0
+
+
+def current_managed_image_or_none(config: Config) -> str | None:
+    if not podman.harness_containerfile_path(config).exists():
+        return None
+    return podman.current_managed_image(config)
 
 
 def cmd_codex_run(args: argparse.Namespace) -> int:

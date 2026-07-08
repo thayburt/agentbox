@@ -60,6 +60,23 @@ after you edit `.agentbox/codex.Containerfile` (which changes the managed image
 tag), `agentbox runs enter` and `agentbox codex shell --run` can rebuild the
 run's original image from its snapshot when it is no longer present locally.
 
+Editing the Containerfile produces a new content-addressed tag, so old images
+accumulate over time. Manage them with:
+
+```bash
+uv run agentbox codex images          # list managed images (current/referenced)
+uv run agentbox codex prune           # remove images no run still references
+uv run agentbox codex prune --dry-run # show what prune would remove
+```
+
+`prune` keeps the current managed image and any image referenced by a saved run.
+Force a rebuild that also refreshes the base image (for security updates or a
+newer Codex install) with:
+
+```bash
+uv run agentbox codex build --rebuild
+```
+
 Pass `--image IMAGE` to bypass the managed Containerfile image entirely:
 
 ```bash

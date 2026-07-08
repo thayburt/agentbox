@@ -1,5 +1,6 @@
 from dataclasses import replace
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -128,6 +129,39 @@ class PodmanTests(unittest.TestCase):
             self.assertIn("build", cmd)
             self.assertIn(str(Path(tmp) / ".agentbox" / "codex.Containerfile"), cmd)
             self.assertEqual(cmd[-1], str(Path(tmp) / ".agentbox"))
+            containerignore = Path(tmp) / ".agentbox" / ".containerignore"
+            self.assertIn("runs", containerignore.read_text().split())
+
+    def test_build_image_force_rebuilds_existing_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            podman.ensure_harness_containerfile(config)
+            with mock.patch("agentbox.podman.image_exists", return_value=True), mock.patch(
+                "agentbox.podman.subprocess.run"
+            ) as run:
+                podman.build_image(config, None, force=True)
+
+            cmd = run.call_args.args[0]
+            self.assertIn("--pull=newer", cmd)
+
+    def test_list_managed_images_filters_by_image_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            completed = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=(
+                    "agentbox-codex:aaa\n"
+                    "ubuntu:24.04\n"
+                    "localhost/agentbox-codex:bbb\n"
+                    "localhost/other:ccc\n"
+                ),
+                stderr="",
+            )
+            with mock.patch("agentbox.podman.run", return_value=completed):
+                images = podman.list_managed_images(config)
+
+            self.assertEqual(images, ["agentbox-codex:aaa", "localhost/agentbox-codex:bbb"])
 
     def config(self, root: Path) -> Config:
         return Config(
