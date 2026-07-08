@@ -63,4 +63,3 @@ def list_runs(run_store: Path) -> list[RunMetadata]:
         if path.is_dir() and (path / METADATA_FILE).exists():
             runs.append(read_metadata(path))
     return runs
-

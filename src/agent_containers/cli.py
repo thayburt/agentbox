@@ -14,6 +14,10 @@ from . import podman
 from . import runs
 
 
+PULL_CHOICES = ("prompt", "branch", "ff-only", "later")
+LOG_PREVIEW_LIMIT = 20
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -33,7 +37,9 @@ def main(argv: list[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agentc")
-    parser.add_argument("--repo", type=Path, default=None, help="Repository root, default: git root")
+    parser.add_argument(
+        "--repo", type=Path, default=None, help="Repository root, default: git root"
+    )
     sub = parser.add_subparsers(required=True)
 
     init = sub.add_parser("init", help="Create agent-containers.toml")
@@ -51,13 +57,19 @@ def build_parser() -> argparse.ArgumentParser:
     codex_run = codex_sub.add_parser("run", help="Run interactive Codex in an isolated clone")
     codex_run.add_argument("prompt", nargs=argparse.REMAINDER)
     codex_run.add_argument("--dry-run", action="store_true")
-    codex_run.add_argument("--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt")
+    codex_run.add_argument(
+        "--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt"
+    )
+    codex_run.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
     codex_run.set_defaults(func=cmd_codex_run)
 
     codex_shell = codex_sub.add_parser("shell", help="Open a shell in an isolated run")
     codex_shell.add_argument("--run", dest="run_id")
     codex_shell.add_argument("--dry-run", action="store_true")
-    codex_shell.add_argument("--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt")
+    codex_shell.add_argument(
+        "--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt"
+    )
+    codex_shell.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
     codex_shell.set_defaults(func=cmd_codex_shell)
 
     runs_parser = sub.add_parser("runs", help="Manage saved run directories")
@@ -132,17 +144,31 @@ def cmd_codex_run(args: argparse.Namespace) -> int:
     if prompt:
         codex_args.append(shlex.quote(prompt))
     command = prelude(devcontainer) + "exec " + " ".join(codex_args)
-    return run_container(config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run)
+    status = run_container(
+        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run
+    )
+    if args.dry_run:
+        return status
+    pull_status = complete_run(config, metadata, args.pull)
+    return status if status else pull_status
 
 
 def cmd_codex_shell(args: argparse.Namespace) -> int:
     config, devcontainer = context(args)
+    should_complete = False
     if args.run_id:
         metadata = load_run(config, args.run_id)
     else:
         _, metadata = prepare_run(config, devcontainer, args.dirty, dry_run=args.dry_run)
+        should_complete = True
     command = prelude(devcontainer) + "exec bash"
-    return run_container(config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run)
+    status = run_container(
+        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run
+    )
+    if args.dry_run or not should_complete:
+        return status
+    pull_status = complete_run(config, metadata, args.pull)
+    return status if status else pull_status
 
 
 def cmd_runs_list(args: argparse.Namespace) -> int:
@@ -156,7 +182,9 @@ def cmd_runs_enter(args: argparse.Namespace) -> int:
     config, devcontainer = context(args)
     metadata = load_run(config, args.run_id)
     command = prelude(devcontainer) + "exec bash"
-    return run_container(config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run)
+    return run_container(
+        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run
+    )
 
 
 def cmd_runs_import(args: argparse.Namespace) -> int:
@@ -168,7 +196,9 @@ def cmd_runs_import(args: argparse.Namespace) -> int:
     commit_count = gitops.count_commits_since(run_repo, metadata.base_head)
     if commit_count == 0:
         if gitops.has_uncommitted_changes(run_repo):
-            print(f"run {metadata.id} has uncommitted changes; use `agentc runs enter {metadata.id}`")
+            print(
+                f"run {metadata.id} has uncommitted changes; use `agentc runs enter {metadata.id}`"
+            )
             return 2
         print(f"run {metadata.id} has no commits to import")
         return 0
@@ -224,10 +254,14 @@ def prepare_run(
     run_dir = config.run_store / run_id
     run_repo = run_dir / "repo"
     if dry_run:
-        metadata = runs.create_metadata(run_id, config.repo_root, run_repo, state.branch, state.head, image)
+        metadata = runs.create_metadata(
+            run_id, config.repo_root, run_repo, state.branch, state.head, image
+        )
         return run_dir, metadata
     gitops.clone_repo(config.repo_root, run_repo, include_dirty=include_dirty)
-    metadata = runs.create_metadata(run_id, config.repo_root, run_repo, state.branch, state.head, image)
+    metadata = runs.create_metadata(
+        run_id, config.repo_root, run_repo, state.branch, state.head, image
+    )
     runs.write_metadata(run_dir, metadata)
     return run_dir, metadata
 
@@ -250,6 +284,122 @@ def load_run(config: Config, run_id: str) -> runs.RunMetadata:
     if not run_dir.exists():
         raise RuntimeError(f"unknown run id: {run_id}")
     return runs.read_metadata(run_dir)
+
+
+def complete_run(config: Config, metadata: runs.RunMetadata, pull_mode: str) -> int:
+    run_repo = Path(metadata.run_repo)
+    branch = f"agentc/{metadata.id}"
+    target_head = gitops.fetch_head(config.repo_root, run_repo)
+    state = gitops.repo_state(config.repo_root)
+    run_only_count = gitops.count_commits_between(config.repo_root, "HEAD", "FETCH_HEAD")
+    has_uncommitted = gitops.has_uncommitted_changes(run_repo)
+
+    if run_only_count == 0:
+        if has_uncommitted:
+            print(
+                f"run {metadata.id} has uncommitted changes; use `agentc runs enter {metadata.id}`"
+            )
+        else:
+            print(f"run {metadata.id} has no commits to pull")
+        return 0
+
+    print(f"Run {metadata.id} finished with {run_only_count} commit(s).")
+    print()
+    print_commit_preview(config.repo_root, state.branch)
+    if has_uncommitted:
+        print()
+        print(
+            f"run {metadata.id} also has uncommitted changes; use `agentc runs enter {metadata.id}`"
+        )
+
+    fast_forward = gitops.check_fast_forward(config.repo_root, metadata.base_branch, "FETCH_HEAD")
+    action = resolve_pull_mode(pull_mode, config, metadata, branch, fast_forward, target_head)
+    if action == "later":
+        print_later_message(metadata, run_only_count)
+        return 0
+    if action == "branch":
+        if gitops.branch_exists(config.repo_root, branch):
+            print(
+                f"branch {branch} already exists; use `agentc runs import {metadata.id} --force`",
+                file=sys.stderr,
+            )
+            return 2
+        gitops.import_branch(config.repo_root, run_repo, branch, force=False)
+        print(f"imported {run_only_count} commit(s) to local branch {branch}")
+        return 0
+    if action == "ff-only":
+        if not fast_forward.ok:
+            print(f"fast-forward unavailable: {fast_forward.reason}", file=sys.stderr)
+            return 2
+        gitops.fast_forward(config.repo_root, "FETCH_HEAD")
+        print(f"fast-forwarded {fast_forward.current_branch} to {target_head[:7]}")
+        return 0
+    raise RuntimeError(f"unknown pull mode: {action}")
+
+
+def print_commit_preview(repo: Path, branch: str) -> None:
+    run_only_count = gitops.count_commits_between(repo, "HEAD", "FETCH_HEAD")
+    print(f"Commits in run not on {branch}:")
+    for line in gitops.one_line_log(repo, "HEAD", "FETCH_HEAD", limit=LOG_PREVIEW_LIMIT):
+        print(f"  {line}")
+    if run_only_count > LOG_PREVIEW_LIMIT:
+        remaining = run_only_count - LOG_PREVIEW_LIMIT
+        print(f"  ... {remaining} more commit(s)")
+
+    host_only_count = gitops.count_commits_between(repo, "FETCH_HEAD", "HEAD")
+    if host_only_count == 0:
+        return
+    print()
+    print(f"Commits on {branch} not in run:")
+    for line in gitops.one_line_log(repo, "FETCH_HEAD", "HEAD", limit=LOG_PREVIEW_LIMIT):
+        print(f"  {line}")
+    if host_only_count > LOG_PREVIEW_LIMIT:
+        remaining = host_only_count - LOG_PREVIEW_LIMIT
+        print(f"  ... {remaining} more commit(s)")
+
+
+def resolve_pull_mode(
+    pull_mode: str,
+    config: Config,
+    metadata: runs.RunMetadata,
+    branch: str,
+    fast_forward: gitops.FastForwardCheck,
+    target_head: str,
+) -> str:
+    if pull_mode != "prompt":
+        return pull_mode
+    if not sys.stdin.isatty():
+        return "later"
+
+    print()
+    print(f"Pull changes back to {config.repo_root}?")
+    print(f"  [b] Import to branch {branch}")
+    if fast_forward.ok:
+        print(f"  [f] Fast-forward {fast_forward.current_branch} to {target_head[:7]}")
+    else:
+        print(f"  [f] Fast-forward {metadata.base_branch} unavailable: {fast_forward.reason}")
+    print("  [l] Leave in run for later review (default)")
+    print()
+
+    while True:
+        answer = input("Choice [b/f/l]: ").strip().lower()
+        if answer in {"", "l", "later"}:
+            return "later"
+        if answer in {"b", "branch"}:
+            return "branch"
+        if answer in {"f", "ff", "ff-only"}:
+            if fast_forward.ok:
+                return "ff-only"
+            print(f"fast-forward unavailable: {fast_forward.reason}")
+            continue
+        print("choose b, f, or l")
+
+
+def print_later_message(metadata: runs.RunMetadata, commit_count: int) -> None:
+    print()
+    print(f"Run {metadata.id} has {commit_count} commit(s) left for later review.")
+    print(f"Review:  agentc runs enter {metadata.id}")
+    print(f"Import:  agentc runs import {metadata.id}")
 
 
 def run_container(
@@ -275,9 +425,9 @@ def run_container(
 
 
 def workspace_path(config: Config, devcontainer: Devcontainer | None) -> str:
-    return (devcontainer.workspace_folder if devcontainer and devcontainer.workspace_folder else None) or (
-        config.workspace_folder
-    )
+    return (
+        devcontainer.workspace_folder if devcontainer and devcontainer.workspace_folder else None
+    ) or (config.workspace_folder)
 
 
 def prelude(devcontainer: Devcontainer | None) -> str:

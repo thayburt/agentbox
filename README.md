@@ -8,7 +8,7 @@ The default flow is intentionally interactive:
 1. `agentc` creates an ephemeral local clone under `.agentc/runs/`.
 2. The original checkout is not mounted into the container.
 3. Codex runs interactively with full permissions inside the container.
-4. You decide whether to import finished commits back as a new local branch.
+4. When Codex exits, you decide whether to pull committed work back.
 
 ## Setup
 
@@ -42,6 +42,23 @@ uv run agentc codex run --dirty include
 uv run agentc codex run --dirty ignore
 ```
 
+When the run finishes, `agentc` shows a compact `git log --oneline` preview of
+commits in the run that are not on the host branch, then prompts:
+
+```text
+[b] Import to branch agentc/<run-id>
+[f] Fast-forward <branch> to <commit>
+[l] Leave in run for later review (default)
+```
+
+In non-interactive use, choose explicitly:
+
+```bash
+uv run agentc codex run --pull branch
+uv run agentc codex run --pull ff-only
+uv run agentc codex run --pull later
+```
+
 Codex launches as:
 
 ```bash
@@ -52,6 +69,11 @@ That is safe only because it runs against the isolated clone, not the original
 checkout.
 
 ## Bring Work Back
+
+The end-of-session prompt can import committed work into `agentc/<run-id>`,
+fast-forward the current branch when it is safe, or leave the run for later
+review. Fast-forward requires a clean host worktree, the same branch the run was
+created from, and no host-only commits outside the run history.
 
 List saved runs:
 

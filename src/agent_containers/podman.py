@@ -10,7 +10,9 @@ from .devcontainer import Devcontainer
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check)
+    return subprocess.run(
+        args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check
+    )
 
 
 def podman_version() -> str | None:
@@ -45,7 +47,9 @@ def harness_image_name(config: Config, devcontainer: Devcontainer | None) -> str
     return f"{config.image_name}:{digest}"
 
 
-def build_image(config: Config, devcontainer: Devcontainer | None, dry_run: bool = False) -> list[str]:
+def build_image(
+    config: Config, devcontainer: Devcontainer | None, dry_run: bool = False
+) -> list[str]:
     state_dir = config.repo_root / ".agentc" / "images" / "codex"
 
     base = config.base_image
@@ -87,7 +91,9 @@ def render_run_command(
     run_repo: Path,
     command: str,
 ) -> list[str]:
-    workspace = devcontainer.workspace_folder if devcontainer and devcontainer.workspace_folder else None
+    workspace = (
+        devcontainer.workspace_folder if devcontainer and devcontainer.workspace_folder else None
+    )
     workspace = workspace or config.workspace_folder
     suffix = volume_suffix(config.selinux)
 

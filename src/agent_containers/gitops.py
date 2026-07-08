@@ -15,6 +15,15 @@ class RepoState:
     dirty: bool
 
 
+@dataclass(frozen=True)
+class FastForwardCheck:
+    ok: bool
+    reason: str | None
+    current_branch: str
+    current_head: str
+    target_head: str
+
+
 def run_git(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
@@ -65,6 +74,11 @@ def count_commits_since(repo: Path, base: str) -> int:
     return int(result.stdout.strip() or "0")
 
 
+def count_commits_between(repo: Path, base: str, head: str) -> int:
+    result = run_git(["rev-list", "--count", f"{base}..{head}"], repo)
+    return int(result.stdout.strip() or "0")
+
+
 def has_uncommitted_changes(repo: Path) -> bool:
     return bool(run_git(["status", "--porcelain"], repo).stdout.strip())
 
@@ -73,8 +87,29 @@ def current_head(repo: Path) -> str:
     return run_git(["rev-parse", "--verify", "HEAD"], repo).stdout.strip()
 
 
+def rev_parse(repo: Path, ref: str) -> str:
+    return run_git(["rev-parse", "--verify", ref], repo).stdout.strip()
+
+
 def branch_exists(repo: Path, branch: str) -> bool:
     result = run_git(["show-ref", "--verify", f"refs/heads/{branch}"], repo, check=False)
+    return result.returncode == 0
+
+
+def fetch_head(original_repo: Path, run_repo: Path) -> str:
+    run_git(["fetch", "--quiet", str(run_repo), "HEAD"], original_repo)
+    return rev_parse(original_repo, "FETCH_HEAD")
+
+
+def one_line_log(repo: Path, base: str, head: str, limit: int = 20) -> list[str]:
+    result = run_git(["log", "--oneline", f"--max-count={limit}", f"{base}..{head}"], repo)
+    if not result.stdout.strip():
+        return []
+    return result.stdout.strip().splitlines()
+
+
+def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
+    result = run_git(["merge-base", "--is-ancestor", ancestor, descendant], repo, check=False)
     return result.returncode == 0
 
 
@@ -83,6 +118,48 @@ def import_branch(original_repo: Path, run_repo: Path, branch: str, force: bool)
     if force:
         refspec = f"+{refspec}"
     run_git(["fetch", str(run_repo), refspec], original_repo)
+
+
+def check_fast_forward(
+    original_repo: Path, expected_branch: str, target_ref: str
+) -> FastForwardCheck:
+    state = repo_state(original_repo)
+    target_head = rev_parse(original_repo, target_ref)
+    if state.dirty:
+        return FastForwardCheck(
+            ok=False,
+            reason="current worktree is dirty",
+            current_branch=state.branch,
+            current_head=state.head,
+            target_head=target_head,
+        )
+    if state.branch != expected_branch:
+        return FastForwardCheck(
+            ok=False,
+            reason=f"current branch is {state.branch}, expected {expected_branch}",
+            current_branch=state.branch,
+            current_head=state.head,
+            target_head=target_head,
+        )
+    if not is_ancestor(original_repo, state.head, target_head):
+        return FastForwardCheck(
+            ok=False,
+            reason="current branch has diverged",
+            current_branch=state.branch,
+            current_head=state.head,
+            target_head=target_head,
+        )
+    return FastForwardCheck(
+        ok=True,
+        reason=None,
+        current_branch=state.branch,
+        current_head=state.head,
+        target_head=target_head,
+    )
+
+
+def fast_forward(original_repo: Path, target_ref: str) -> None:
+    run_git(["merge", "--ff-only", target_ref], original_repo)
 
 
 def _copy_or_remove(src: Path, dest: Path) -> None:
@@ -97,4 +174,3 @@ def _copy_or_remove(src: Path, dest: Path) -> None:
         shutil.copytree(src, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
     else:
         shutil.copy2(src, dest)
-

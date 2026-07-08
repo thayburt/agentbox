@@ -139,4 +139,3 @@ def _command_list(value: Any) -> list[str]:
     if isinstance(value, dict):
         return [str(value[key]) for key in sorted(value)]
     raise ValueError(f"Unsupported command value: {value!r}")
-
