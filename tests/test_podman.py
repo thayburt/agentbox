@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -45,6 +46,38 @@ class PodmanTests(unittest.TestCase):
         self.assertEqual(volume_suffix("disabled"), "")
         self.assertEqual(volume_suffix("z"), ":z")
         self.assertEqual(volume_suffix("Z"), ":Z")
+
+    def test_volume_suffix_auto_shared_vs_private(self):
+        with mock.patch("agentbox.podman.Path") as path_cls:
+            path_cls.return_value.exists.return_value = True
+            self.assertEqual(volume_suffix("auto", shared=True), ":z")
+            self.assertEqual(volume_suffix("auto", shared=False), ":Z")
+        with mock.patch("agentbox.podman.Path") as path_cls:
+            path_cls.return_value.exists.return_value = False
+            self.assertEqual(volume_suffix("auto", shared=True), "")
+            self.assertEqual(volume_suffix("auto", shared=False), "")
+
+    def test_render_run_command_uses_shared_label_for_codex_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = replace(self.config(root), selinux="auto")
+            codex_home = config.codex_home
+            codex_home.mkdir(parents=True, exist_ok=True)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+            # config/run paths are passed in as real Path objects; only
+            # volume_suffix's /sys/fs/selinux check goes through podman.Path.
+            with mock.patch("agentbox.podman.Path") as path_cls:
+                path_cls.return_value.exists.return_value = True
+                cmd = render_run_command(
+                    config=config,
+                    devcontainer=None,
+                    image="agentbox-codex:test",
+                    run_repo=run_repo,
+                    command="exec bash",
+                )
+            self.assertIn(f"{codex_home.resolve()}:/codex-home:z", cmd)
+            self.assertIn(f"{run_repo.resolve()}:/workspace:Z", cmd)
 
     def test_ensure_harness_containerfile_writes_default_once(self):
         with tempfile.TemporaryDirectory() as tmp:

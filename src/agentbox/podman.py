@@ -145,7 +145,11 @@ def render_run_command(
         devcontainer.workspace_folder if devcontainer and devcontainer.workspace_folder else None
     )
     workspace = workspace or config.workspace_folder
-    suffix = volume_suffix(config.selinux)
+    # codex_home is a shared host directory: relabel with :z (shared) rather
+    # than :Z (private) so podman does not strip the host's own access to it.
+    codex_home_suffix = volume_suffix(config.selinux, shared=True)
+    # The run clone is ephemeral and container-private, so :Z is appropriate.
+    run_repo_suffix = volume_suffix(config.selinux, shared=False)
 
     args = [
         "podman",
@@ -158,9 +162,9 @@ def render_run_command(
         "-e",
         "CODEX_HOME=/codex-home",
         "-v",
-        f"{config.codex_home.resolve()}:/codex-home{suffix}",
+        f"{config.codex_home.resolve()}:/codex-home{codex_home_suffix}",
         "-v",
-        f"{run_repo.resolve()}:{workspace}{suffix}",
+        f"{run_repo.resolve()}:{workspace}{run_repo_suffix}",
     ]
     if devcontainer:
         for key, value in devcontainer.env.items():
@@ -172,13 +176,13 @@ def render_run_command(
     return args
 
 
-def volume_suffix(mode: str) -> str:
+def volume_suffix(mode: str, *, shared: bool = False) -> str:
     if mode == "disabled":
         return ""
     if mode in {"z", "Z"}:
         return f":{mode}"
     if mode == "auto" and Path("/sys/fs/selinux").exists():
-        return ":Z"
+        return ":z" if shared else ":Z"
     return ""
 
 
