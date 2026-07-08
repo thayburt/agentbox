@@ -19,6 +19,9 @@ class Config:
     codex_home: Path
     workspace_folder: str
     selinux: str
+    git_user_name: str | None
+    git_user_email: str | None
+    sign_imports: bool
 
 
 def default_toml() -> str:
@@ -37,6 +40,11 @@ image_name = "agentc-codex"
 base_image = "ubuntu:24.04"
 workspace_folder = "/workspace"
 codex_home = "{codex_home}"
+
+[git]
+# user_name = "Your Name"
+# user_email = "you@example.com"
+sign_imports = false
 """
 
 
@@ -72,6 +80,9 @@ def load_config(repo_root: Path) -> Config:
         codex_home=Path(str(codex_home_raw)).expanduser(),
         workspace_folder=str(_get(data, "codex.workspace_folder", "/workspace")),
         selinux=str(_get(data, "runtime.selinux", "auto")),
+        git_user_name=_optional_str(_get(data, "git.user_name")),
+        git_user_email=_optional_str(_get(data, "git.user_email")),
+        sign_imports=bool(_get(data, "git.sign_imports", False)),
     )
 
 
@@ -80,3 +91,10 @@ def _resolve_repo_path(repo_root: Path, value: str) -> Path:
     if path.is_absolute():
         return path
     return repo_root / path
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if text else None

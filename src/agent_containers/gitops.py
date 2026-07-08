@@ -5,6 +5,7 @@ from pathlib import Path
 import os
 import shutil
 import subprocess
+import tempfile
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,12 @@ class FastForwardCheck:
     current_branch: str
     current_head: str
     target_head: str
+
+
+@dataclass(frozen=True)
+class GitIdentity:
+    user_name: str | None = None
+    user_email: str | None = None
 
 
 def run_git(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -47,6 +54,30 @@ def clone_repo(source: Path, dest: Path, include_dirty: bool) -> None:
     run_git(["clone", "--no-hardlinks", str(source), str(dest)], source)
     if include_dirty:
         copy_dirty_paths(source, dest)
+
+
+def read_git_identity(repo: Path) -> GitIdentity:
+    return GitIdentity(
+        user_name=_git_config_get(repo, "user.name"),
+        user_email=_git_config_get(repo, "user.email"),
+    )
+
+
+def resolve_git_identity(
+    repo: Path, user_name: str | None = None, user_email: str | None = None
+) -> GitIdentity:
+    host_identity = read_git_identity(repo)
+    return GitIdentity(
+        user_name=user_name if user_name is not None else host_identity.user_name,
+        user_email=user_email if user_email is not None else host_identity.user_email,
+    )
+
+
+def apply_git_identity(repo: Path, identity: GitIdentity) -> None:
+    if identity.user_name:
+        run_git(["config", "user.name", identity.user_name], repo)
+    if identity.user_email:
+        run_git(["config", "user.email", identity.user_email], repo)
 
 
 def copy_dirty_paths(source: Path, dest: Path) -> None:
@@ -120,6 +151,45 @@ def import_branch(original_repo: Path, run_repo: Path, branch: str, force: bool)
     run_git(["fetch", str(run_repo), refspec], original_repo)
 
 
+def import_branch_signed(
+    original_repo: Path,
+    run_repo: Path,
+    base_head: str,
+    branch: str,
+    force: bool,
+) -> str:
+    fetch_head(original_repo, run_repo)
+    if branch_exists(original_repo, branch) and not force:
+        raise RuntimeError(f"branch {branch} already exists")
+
+    merge_commits = _rev_list(original_repo, [f"{base_head}..FETCH_HEAD", "--merges"])
+    if merge_commits:
+        raise RuntimeError(
+            "signed import does not support merge commits; rerun with --no-sign-imports"
+        )
+
+    commits = _rev_list(original_repo, [f"{base_head}..FETCH_HEAD", "--reverse"])
+    if not commits:
+        return base_head
+
+    with tempfile.TemporaryDirectory(prefix="agentc-sign-import-") as tmp:
+        worktree = Path(tmp) / "worktree"
+        try:
+            run_git(["worktree", "add", "--detach", str(worktree), base_head], original_repo)
+            for commit in commits:
+                run_git(["cherry-pick", "-S", commit], worktree)
+            signed_head = current_head(worktree)
+            run_git(["update-ref", f"refs/heads/{branch}", signed_head], original_repo)
+            return signed_head
+        finally:
+            if worktree.exists():
+                run_git(
+                    ["worktree", "remove", "--force", str(worktree)],
+                    original_repo,
+                    check=False,
+                )
+
+
 def check_fast_forward(
     original_repo: Path, expected_branch: str, target_ref: str
 ) -> FastForwardCheck:
@@ -174,3 +244,18 @@ def _copy_or_remove(src: Path, dest: Path) -> None:
         shutil.copytree(src, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
     else:
         shutil.copy2(src, dest)
+
+
+def _git_config_get(repo: Path, key: str) -> str | None:
+    result = run_git(["config", "--get", key], repo, check=False)
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def _rev_list(repo: Path, args: list[str]) -> list[str]:
+    result = run_git(["rev-list", *args], repo)
+    if not result.stdout.strip():
+        return []
+    return result.stdout.strip().splitlines()

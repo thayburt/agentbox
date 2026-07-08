@@ -20,6 +20,29 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(config.codex_home, Path("/tmp/codex-home"))
                 self.assertIn('codex_home = "/tmp/codex-home"', default_toml())
 
+    def test_git_identity_defaults_to_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_config(Path(tmp))
+            self.assertIsNone(config.git_user_name)
+            self.assertIsNone(config.git_user_email)
+            self.assertFalse(config.sign_imports)
+
+    def test_git_identity_loads_from_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agent-containers.toml").write_text(
+                """
+[git]
+user_name = "Agent User"
+user_email = "agent@example.com"
+sign_imports = true
+"""
+            )
+            config = load_config(root)
+            self.assertEqual(config.git_user_name, "Agent User")
+            self.assertEqual(config.git_user_email, "agent@example.com")
+            self.assertTrue(config.sign_imports)
+
 
 if __name__ == "__main__":
     unittest.main()

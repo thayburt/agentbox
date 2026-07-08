@@ -61,6 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt"
     )
     codex_run.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
+    codex_run.add_argument("--git-user-name", default=None)
+    codex_run.add_argument("--git-user-email", default=None)
+    add_sign_import_args(codex_run)
     codex_run.set_defaults(func=cmd_codex_run)
 
     codex_shell = codex_sub.add_parser("shell", help="Open a shell in an isolated run")
@@ -70,6 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt"
     )
     codex_shell.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
+    codex_shell.add_argument("--git-user-name", default=None)
+    codex_shell.add_argument("--git-user-email", default=None)
+    add_sign_import_args(codex_shell)
     codex_shell.set_defaults(func=cmd_codex_shell)
 
     runs_parser = sub.add_parser("runs", help="Manage saved run directories")
@@ -83,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     runs_import = runs_sub.add_parser("import", help="Import run commits as a local branch")
     runs_import.add_argument("run_id")
     runs_import.add_argument("--force", action="store_true")
+    add_sign_import_args(runs_import)
     runs_import.set_defaults(func=cmd_runs_import)
     runs_prune = runs_sub.add_parser("prune", help="Delete saved run directories")
     runs_prune.add_argument("run_id", nargs="*")
@@ -130,7 +137,14 @@ def cmd_codex_build(args: argparse.Namespace) -> int:
 
 def cmd_codex_run(args: argparse.Namespace) -> int:
     config, devcontainer = context(args)
-    _, metadata = prepare_run(config, devcontainer, args.dirty, dry_run=args.dry_run)
+    _, metadata = prepare_run(
+        config,
+        devcontainer,
+        args.dirty,
+        dry_run=args.dry_run,
+        git_user_name=args.git_user_name,
+        git_user_email=args.git_user_email,
+    )
     prompt = " ".join(args.prompt).strip()
     codex_args = [
         "codex",
@@ -149,7 +163,7 @@ def cmd_codex_run(args: argparse.Namespace) -> int:
     )
     if args.dry_run:
         return status
-    pull_status = complete_run(config, metadata, args.pull)
+    pull_status = complete_run(config, metadata, args.pull, args.sign_imports)
     return status if status else pull_status
 
 
@@ -159,7 +173,14 @@ def cmd_codex_shell(args: argparse.Namespace) -> int:
     if args.run_id:
         metadata = load_run(config, args.run_id)
     else:
-        _, metadata = prepare_run(config, devcontainer, args.dirty, dry_run=args.dry_run)
+        _, metadata = prepare_run(
+            config,
+            devcontainer,
+            args.dirty,
+            dry_run=args.dry_run,
+            git_user_name=args.git_user_name,
+            git_user_email=args.git_user_email,
+        )
         should_complete = True
     command = prelude(devcontainer) + "exec bash"
     status = run_container(
@@ -167,7 +188,7 @@ def cmd_codex_shell(args: argparse.Namespace) -> int:
     )
     if args.dry_run or not should_complete:
         return status
-    pull_status = complete_run(config, metadata, args.pull)
+    pull_status = complete_run(config, metadata, args.pull, args.sign_imports)
     return status if status else pull_status
 
 
@@ -207,8 +228,19 @@ def cmd_runs_import(args: argparse.Namespace) -> int:
         print(f"branch {branch} already exists; use --force to replace it", file=sys.stderr)
         return 2
 
-    gitops.import_branch(config.repo_root, run_repo, branch, force=args.force)
-    print(f"imported {commit_count} commit(s) to local branch {branch}")
+    sign_imports = resolve_sign_imports(config, args.sign_imports)
+    if sign_imports:
+        gitops.import_branch_signed(
+            config.repo_root,
+            run_repo,
+            metadata.base_head,
+            branch,
+            force=args.force,
+        )
+        print(f"imported {commit_count} signed commit(s) to local branch {branch}")
+    else:
+        gitops.import_branch(config.repo_root, run_repo, branch, force=args.force)
+        print(f"imported {commit_count} commit(s) to local branch {branch}")
     return 0
 
 
@@ -242,12 +274,22 @@ def repo_root(args: argparse.Namespace) -> Path:
 
 
 def prepare_run(
-    config: Config, devcontainer: Devcontainer | None, dirty_mode: str, dry_run: bool = False
+    config: Config,
+    devcontainer: Devcontainer | None,
+    dirty_mode: str,
+    dry_run: bool = False,
+    git_user_name: str | None = None,
+    git_user_email: str | None = None,
 ) -> tuple[Path, runs.RunMetadata]:
     state = gitops.repo_state(config.repo_root)
     include_dirty = False
     if state.dirty:
         include_dirty = resolve_dirty_mode(dirty_mode)
+    resolved_identity = gitops.resolve_git_identity(
+        config.repo_root,
+        user_name=git_user_name if git_user_name is not None else config.git_user_name,
+        user_email=git_user_email if git_user_email is not None else config.git_user_email,
+    )
 
     image = podman.harness_image_name(config, devcontainer)
     run_id = runs.new_run_id()
@@ -259,6 +301,7 @@ def prepare_run(
         )
         return run_dir, metadata
     gitops.clone_repo(config.repo_root, run_repo, include_dirty=include_dirty)
+    gitops.apply_git_identity(run_repo, resolved_identity)
     metadata = runs.create_metadata(
         run_id, config.repo_root, run_repo, state.branch, state.head, image
     )
@@ -286,7 +329,12 @@ def load_run(config: Config, run_id: str) -> runs.RunMetadata:
     return runs.read_metadata(run_dir)
 
 
-def complete_run(config: Config, metadata: runs.RunMetadata, pull_mode: str) -> int:
+def complete_run(
+    config: Config,
+    metadata: runs.RunMetadata,
+    pull_mode: str,
+    sign_imports_override: bool | None = None,
+) -> int:
     run_repo = Path(metadata.run_repo)
     branch = f"agentc/{metadata.id}"
     target_head = gitops.fetch_head(config.repo_root, run_repo)
@@ -314,6 +362,7 @@ def complete_run(config: Config, metadata: runs.RunMetadata, pull_mode: str) -> 
 
     fast_forward = gitops.check_fast_forward(config.repo_root, metadata.base_branch, "FETCH_HEAD")
     action = resolve_pull_mode(pull_mode, config, metadata, branch, fast_forward, target_head)
+    sign_imports = resolve_sign_imports(config, sign_imports_override)
     if action == "later":
         print_later_message(metadata, run_only_count)
         return 0
@@ -324,10 +373,26 @@ def complete_run(config: Config, metadata: runs.RunMetadata, pull_mode: str) -> 
                 file=sys.stderr,
             )
             return 2
-        gitops.import_branch(config.repo_root, run_repo, branch, force=False)
-        print(f"imported {run_only_count} commit(s) to local branch {branch}")
+        if sign_imports:
+            gitops.import_branch_signed(
+                config.repo_root,
+                run_repo,
+                metadata.base_head,
+                branch,
+                force=False,
+            )
+            print(f"imported {run_only_count} signed commit(s) to local branch {branch}")
+        else:
+            gitops.import_branch(config.repo_root, run_repo, branch, force=False)
+            print(f"imported {run_only_count} commit(s) to local branch {branch}")
         return 0
     if action == "ff-only":
+        if sign_imports:
+            print(
+                "signed import rewrites commits; use --pull branch or --no-sign-imports",
+                file=sys.stderr,
+            )
+            return 2
         if not fast_forward.ok:
             print(f"fast-forward unavailable: {fast_forward.reason}", file=sys.stderr)
             return 2
@@ -335,6 +400,18 @@ def complete_run(config: Config, metadata: runs.RunMetadata, pull_mode: str) -> 
         print(f"fast-forwarded {fast_forward.current_branch} to {target_head[:7]}")
         return 0
     raise RuntimeError(f"unknown pull mode: {action}")
+
+
+def add_sign_import_args(parser: argparse.ArgumentParser) -> None:
+    parser.set_defaults(sign_imports=None)
+    parser.add_argument("--sign-imports", dest="sign_imports", action="store_true")
+    parser.add_argument("--no-sign-imports", dest="sign_imports", action="store_false")
+
+
+def resolve_sign_imports(config: Config, override: bool | None) -> bool:
+    if override is not None:
+        return override
+    return config.sign_imports
 
 
 def print_commit_preview(repo: Path, branch: str) -> None:

@@ -23,6 +23,9 @@ class PodmanTests(unittest.TestCase):
                 codex_home=codex_home,
                 workspace_folder="/workspace",
                 selinux="disabled",
+                git_user_name=None,
+                git_user_email=None,
+                sign_imports=False,
             )
             cmd = render_run_command(
                 config=config,

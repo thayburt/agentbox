@@ -42,6 +42,29 @@ uv run agentc codex run --dirty include
 uv run agentc codex run --dirty ignore
 ```
 
+New run clones inherit only Git commit identity from the host checkout. `agentc`
+resolves `user.name` and `user.email` from CLI flags, then `[git]` config, then
+`git config --get` in the original repo, and writes resolved values into the run
+clone's local `.git/config`:
+
+```toml
+[git]
+user_name = "Your Name"
+user_email = "you@example.com"
+sign_imports = false
+```
+
+```bash
+uv run agentc codex run --git-user-name "Your Name" --git-user-email you@example.com
+uv run agentc codex shell --git-user-name "Your Name" --git-user-email you@example.com
+```
+
+Set `sign_imports = true` or pass `--sign-imports` to rewrite imported run
+commits on the host with `git cherry-pick -S`. This keeps signing keys out of
+the sandbox. `--no-sign-imports` disables that behavior for a command. Signed
+imports create/update the `agentc/<run-id>` branch; `ff-only` remains an
+exact-history operation and is not available while signed imports are enabled.
+
 When the run finishes, `agentc` shows a compact `git log --oneline` preview of
 commits in the run that are not on the host branch, then prompts:
 
