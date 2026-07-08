@@ -115,7 +115,7 @@ WORKDIR /workspace
             "--dir",
             workspace,
             "--interactive",
-            "--dangerously-skip-permissions",
+            "--auto",
         ]
         if prompt:
             args.append(prompt)
