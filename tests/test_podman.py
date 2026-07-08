@@ -2,8 +2,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from agent_containers.config import Config
-from agent_containers.podman import render_run_command, volume_suffix
+from agentbox.config import Config
+from agentbox.podman import render_run_command, volume_suffix
 
 
 class PodmanTests(unittest.TestCase):
@@ -18,7 +18,7 @@ class PodmanTests(unittest.TestCase):
                 repo_root=root,
                 run_store=root / "runs",
                 devcontainer=None,
-                image_name="agentc-codex",
+                image_name="agentbox-codex",
                 base_image="ubuntu:24.04",
                 codex_home=codex_home,
                 workspace_folder="/workspace",
@@ -30,7 +30,7 @@ class PodmanTests(unittest.TestCase):
             cmd = render_run_command(
                 config=config,
                 devcontainer=None,
-                image="agentc-codex:test",
+                image="agentbox-codex:test",
                 run_repo=run_repo,
                 command="exec bash",
             )

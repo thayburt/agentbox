@@ -1,5 +1,5 @@
 [project]
-name = "agent-containers"
+name = "agentbox"
 version = "0.1.0"
 description = "Run AI coding agents inside rootless Podman containers."
 readme = "README.md"
@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
-agentc = "agent_containers.cli:main"
+agentbox = "agentbox.cli:main"
 
 [build-system]
 requires = ["hatchling"]

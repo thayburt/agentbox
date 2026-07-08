@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from agent_containers.devcontainer import load_devcontainer, strip_jsonc
+from agentbox.devcontainer import load_devcontainer, strip_jsonc
 
 
 class DevcontainerTests(unittest.TestCase):

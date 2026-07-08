@@ -50,7 +50,7 @@ def harness_image_name(config: Config, devcontainer: Devcontainer | None) -> str
 def build_image(
     config: Config, devcontainer: Devcontainer | None, dry_run: bool = False
 ) -> list[str]:
-    state_dir = config.repo_root / ".agentc" / "images" / "codex"
+    state_dir = config.repo_root / ".agentbox" / "images" / "codex"
 
     base = config.base_image
     if devcontainer and devcontainer.build_context and devcontainer.build_dockerfile:

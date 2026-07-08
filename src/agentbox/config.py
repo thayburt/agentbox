@@ -6,7 +6,7 @@ from pathlib import Path
 import tomllib
 
 
-CONFIG_FILE = "agent-containers.toml"
+CONFIG_FILE = "agentbox.toml"
 
 
 @dataclass(frozen=True)
@@ -26,17 +26,17 @@ class Config:
 
 def default_toml() -> str:
     codex_home = os.environ.get("CODEX_HOME", "~/.codex")
-    return f"""# agent-containers project configuration
+    return f"""# agentbox project configuration
 
 [runtime]
-run_store = ".agentc/runs"
+run_store = ".agentbox/runs"
 selinux = "auto" # auto, z, Z, or disabled
 
 [devcontainer]
 path = ".devcontainer/devcontainer.json"
 
 [codex]
-image_name = "agentc-codex"
+image_name = "agentbox-codex"
 base_image = "ubuntu:24.04"
 workspace_folder = "/workspace"
 codex_home = "{codex_home}"
@@ -64,7 +64,7 @@ def load_config(repo_root: Path) -> Config:
     if path.exists():
         data = tomllib.loads(path.read_text())
 
-    run_store_raw = _get(data, "runtime.run_store", ".agentc/runs")
+    run_store_raw = _get(data, "runtime.run_store", ".agentbox/runs")
     devcontainer_raw = _get(data, "devcontainer.path", ".devcontainer/devcontainer.json")
     codex_home_raw = _get(data, "codex.codex_home", os.environ.get("CODEX_HOME", "~/.codex"))
 
@@ -75,7 +75,7 @@ def load_config(repo_root: Path) -> Config:
         repo_root=repo_root,
         run_store=run_store,
         devcontainer=devcontainer,
-        image_name=str(_get(data, "codex.image_name", "agentc-codex")),
+        image_name=str(_get(data, "codex.image_name", "agentbox-codex")),
         base_image=str(_get(data, "codex.base_image", "ubuntu:24.04")),
         codex_home=Path(str(codex_home_raw)).expanduser(),
         workspace_folder=str(_get(data, "codex.workspace_folder", "/workspace")),

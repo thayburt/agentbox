@@ -5,8 +5,8 @@ import subprocess
 import tempfile
 import unittest
 
-from agent_containers import cli, gitops, runs
-from agent_containers.config import load_config
+from agentbox import cli, gitops, runs
+from agentbox.config import load_config
 
 
 class CliRunPreparationTests(unittest.TestCase):
@@ -46,7 +46,7 @@ class CliRunPreparationTests(unittest.TestCase):
     def test_prepare_run_cli_identity_overrides_config_and_host_git_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
-            (root / "agent-containers.toml").write_text(
+            (root / "agentbox.toml").write_text(
                 """
 [runtime]
 run_store = "../runs"
@@ -56,7 +56,7 @@ user_name = "Config User"
 user_email = "config@example.com"
 """
             )
-            self.git(root, "add", "agent-containers.toml")
+            self.git(root, "add", "agentbox.toml")
             self.git(root, "commit", "-m", "add config")
             config = load_config(root)
 
@@ -82,7 +82,7 @@ user_email = "config@example.com"
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
             self.configure_fake_signing(root, Path(tmp))
-            (root / "agent-containers.toml").write_text(
+            (root / "agentbox.toml").write_text(
                 """
 [runtime]
 run_store = "../runs"
@@ -99,7 +99,7 @@ sign_imports = true
                     self.args(repo=root, run_id=metadata.id, force=False, sign_imports=None)
                 )
 
-            imported_head = gitops.rev_parse(root, f"agentc/{metadata.id}")
+            imported_head = gitops.rev_parse(root, f"agentbox/{metadata.id}")
             self.assertEqual(status, 0)
             self.assertNotEqual(imported_head, run_head)
             self.assertIn("gpgsig", self.git_output(root, "cat-file", "commit", imported_head))
@@ -108,7 +108,7 @@ sign_imports = true
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
             self.configure_fake_signing(root, Path(tmp))
-            (root / "agent-containers.toml").write_text(
+            (root / "agentbox.toml").write_text(
                 """
 [runtime]
 run_store = "../runs"
@@ -126,12 +126,12 @@ sign_imports = true
                 )
 
             self.assertEqual(status, 0)
-            self.assertEqual(gitops.rev_parse(root, f"agentc/{metadata.id}"), run_head)
+            self.assertEqual(gitops.rev_parse(root, f"agentbox/{metadata.id}"), run_head)
 
     def test_complete_run_rejects_ff_only_when_signing_is_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
-            (root / "agent-containers.toml").write_text(
+            (root / "agentbox.toml").write_text(
                 """
 [git]
 sign_imports = true
@@ -177,7 +177,7 @@ sign_imports = true
             run_repo,
             state.branch,
             state.head,
-            "agentc-codex:test",
+            "agentbox-codex:test",
         )
         runs.write_metadata(run_dir, metadata)
         return run_repo, metadata

@@ -4,14 +4,14 @@ import tempfile
 import unittest
 from unittest import mock
 
-from agent_containers.config import default_toml, load_config
+from agentbox.config import default_toml, load_config
 
 
 class ConfigTests(unittest.TestCase):
-    def test_defaults_use_agentc_run_store(self):
+    def test_defaults_use_agentbox_run_store(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_config(Path(tmp))
-            self.assertEqual(config.run_store, Path(tmp) / ".agentc" / "runs")
+            self.assertEqual(config.run_store, Path(tmp) / ".agentbox" / "runs")
 
     def test_codex_home_prefers_environment(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -30,7 +30,7 @@ class ConfigTests(unittest.TestCase):
     def test_git_identity_loads_from_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "agent-containers.toml").write_text(
+            (root / "agentbox.toml").write_text(
                 """
 [git]
 user_name = "Agent User"

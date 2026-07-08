@@ -31,18 +31,18 @@ def main(argv: list[str] | None = None) -> int:
             print(exc.stderr, file=sys.stderr, end="")
         return exc.returncode
     except Exception as exc:
-        print(f"agentc: {exc}", file=sys.stderr)
+        print(f"agentbox: {exc}", file=sys.stderr)
         return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="agentc")
+    parser = argparse.ArgumentParser(prog="agentbox")
     parser.add_argument(
         "--repo", type=Path, default=None, help="Repository root, default: git root"
     )
     sub = parser.add_subparsers(required=True)
 
-    init = sub.add_parser("init", help="Create agent-containers.toml")
+    init = sub.add_parser("init", help="Create agentbox.toml")
     init.set_defaults(func=cmd_init)
 
     doctor = sub.add_parser("doctor", help="Check host prerequisites")
@@ -212,13 +212,13 @@ def cmd_runs_import(args: argparse.Namespace) -> int:
     config, _ = context(args)
     metadata = load_run(config, args.run_id)
     run_repo = Path(metadata.run_repo)
-    branch = f"agentc/{metadata.id}"
+    branch = f"agentbox/{metadata.id}"
 
     commit_count = gitops.count_commits_since(run_repo, metadata.base_head)
     if commit_count == 0:
         if gitops.has_uncommitted_changes(run_repo):
             print(
-                f"run {metadata.id} has uncommitted changes; use `agentc runs enter {metadata.id}`"
+                f"run {metadata.id} has uncommitted changes; use `agentbox runs enter {metadata.id}`"
             )
             return 2
         print(f"run {metadata.id} has no commits to import")
@@ -336,7 +336,7 @@ def complete_run(
     sign_imports_override: bool | None = None,
 ) -> int:
     run_repo = Path(metadata.run_repo)
-    branch = f"agentc/{metadata.id}"
+    branch = f"agentbox/{metadata.id}"
     target_head = gitops.fetch_head(config.repo_root, run_repo)
     state = gitops.repo_state(config.repo_root)
     run_only_count = gitops.count_commits_between(config.repo_root, "HEAD", "FETCH_HEAD")
@@ -345,7 +345,7 @@ def complete_run(
     if run_only_count == 0:
         if has_uncommitted:
             print(
-                f"run {metadata.id} has uncommitted changes; use `agentc runs enter {metadata.id}`"
+                f"run {metadata.id} has uncommitted changes; use `agentbox runs enter {metadata.id}`"
             )
         else:
             print(f"run {metadata.id} has no commits to pull")
@@ -357,7 +357,7 @@ def complete_run(
     if has_uncommitted:
         print()
         print(
-            f"run {metadata.id} also has uncommitted changes; use `agentc runs enter {metadata.id}`"
+            f"run {metadata.id} also has uncommitted changes; use `agentbox runs enter {metadata.id}`"
         )
 
     fast_forward = gitops.check_fast_forward(config.repo_root, metadata.base_branch, "FETCH_HEAD")
@@ -369,7 +369,7 @@ def complete_run(
     if action == "branch":
         if gitops.branch_exists(config.repo_root, branch):
             print(
-                f"branch {branch} already exists; use `agentc runs import {metadata.id} --force`",
+                f"branch {branch} already exists; use `agentbox runs import {metadata.id} --force`",
                 file=sys.stderr,
             )
             return 2
@@ -475,8 +475,8 @@ def resolve_pull_mode(
 def print_later_message(metadata: runs.RunMetadata, commit_count: int) -> None:
     print()
     print(f"Run {metadata.id} has {commit_count} commit(s) left for later review.")
-    print(f"Review:  agentc runs enter {metadata.id}")
-    print(f"Import:  agentc runs import {metadata.id}")
+    print(f"Review:  agentbox runs enter {metadata.id}")
+    print(f"Import:  agentbox runs import {metadata.id}")
 
 
 def run_container(

@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 import unittest
 
-from agent_containers import gitops
+from agentbox import gitops
 
 
 class GitOpsTests(unittest.TestCase):
@@ -65,9 +65,9 @@ class GitOpsTests(unittest.TestCase):
 
             self.assertEqual(gitops.count_commits_since(run_repo, state.head), 1)
             run_head = gitops.current_head(run_repo)
-            gitops.import_branch(root, run_repo, "agentc/test", force=False)
-            self.assertTrue(gitops.branch_exists(root, "agentc/test"))
-            self.assertEqual(gitops.rev_parse(root, "agentc/test"), run_head)
+            gitops.import_branch(root, run_repo, "agentbox/test", force=False)
+            self.assertTrue(gitops.branch_exists(root, "agentbox/test"))
+            self.assertEqual(gitops.rev_parse(root, "agentbox/test"), run_head)
 
     def test_import_branch_signed_replays_with_signed_commits(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -87,16 +87,16 @@ class GitOpsTests(unittest.TestCase):
                 root,
                 run_repo,
                 state.head,
-                "agentc/signed",
+                "agentbox/signed",
                 force=False,
             )
 
-            self.assertTrue(gitops.branch_exists(root, "agentc/signed"))
-            self.assertEqual(gitops.rev_parse(root, "agentc/signed"), signed_head)
+            self.assertTrue(gitops.branch_exists(root, "agentbox/signed"))
+            self.assertEqual(gitops.rev_parse(root, "agentbox/signed"), signed_head)
             self.assertNotEqual(signed_head, run_head)
             self.assertIn("gpgsig", self.git_output(root, "cat-file", "commit", signed_head))
             self.assertEqual(
-                self.git_output(root, "show", "agentc/signed:file.txt"),
+                self.git_output(root, "show", "agentbox/signed:file.txt"),
                 "base\nchange",
             )
 
@@ -120,9 +120,9 @@ class GitOpsTests(unittest.TestCase):
             self.git(run_repo, "merge", "--no-ff", "feature", "-m", "merge feature")
 
             with self.assertRaisesRegex(RuntimeError, "merge commits"):
-                gitops.import_branch_signed(root, run_repo, state.head, "agentc/signed", False)
+                gitops.import_branch_signed(root, run_repo, state.head, "agentbox/signed", False)
 
-            self.assertFalse(gitops.branch_exists(root, "agentc/signed"))
+            self.assertFalse(gitops.branch_exists(root, "agentbox/signed"))
 
     def test_fetch_log_and_fast_forward(self):
         with tempfile.TemporaryDirectory() as tmp:

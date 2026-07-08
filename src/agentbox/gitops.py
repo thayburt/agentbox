@@ -172,7 +172,7 @@ def import_branch_signed(
     if not commits:
         return base_head
 
-    with tempfile.TemporaryDirectory(prefix="agentc-sign-import-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="agentbox-sign-import-") as tmp:
         worktree = Path(tmp) / "worktree"
         try:
             run_git(["worktree", "add", "--detach", str(worktree), base_head], original_repo)
