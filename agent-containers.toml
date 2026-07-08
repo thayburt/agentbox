@@ -1,0 +1,14 @@
+# agent-containers project configuration
+
+[runtime]
+run_store = ".agentc/runs"
+selinux = "auto" # auto, z, Z, or disabled
+
+[devcontainer]
+path = ".devcontainer/devcontainer.json"
+
+[codex]
+image_name = "agentc-codex"
+base_image = "ubuntu:24.04"
+workspace_folder = "/workspace"
+codex_home = "/home/notai/config/codex"
