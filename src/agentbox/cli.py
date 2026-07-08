@@ -344,14 +344,25 @@ def cmd_runs_prune(args: argparse.Namespace) -> int:
     if not args.all and not args.run_id:
         print("provide run ids or --all", file=sys.stderr)
         return 2
-    targets = [config.run_store / run_id for run_id in args.run_id]
     if args.all:
-        targets = [config.run_store / item.id for item in runs.list_runs(config.run_store)]
-    for target in targets:
+        run_ids = [item.id for item in runs.list_runs(config.run_store)]
+    else:
+        run_ids = args.run_id
+    status = 0
+    for run_id in run_ids:
+        try:
+            target = resolve_run_dir(config, run_id)
+        except RuntimeError as exc:
+            print(f"agentbox: {exc}", file=sys.stderr)
+            status = 2
+            continue
         if target.exists():
             shutil.rmtree(target)
             print(f"deleted {target}")
-    return 0
+        else:
+            print(f"no such run: {run_id}", file=sys.stderr)
+            status = 2
+    return status
 
 
 def context(args: argparse.Namespace) -> tuple[Config, Devcontainer | None]:
@@ -442,6 +453,13 @@ def resolve_run_inputs(
         user_name=git_user_name if git_user_name is not None else config.git_user_name,
         user_email=git_user_email if git_user_email is not None else config.git_user_email,
     )
+    if not resolved_identity.user_name or not resolved_identity.user_email:
+        print(
+            "agentbox: warning: git user.name/user.email is not set; commits inside the "
+            "container may fail. Set [git] user_name/user_email in agentbox.toml or pass "
+            "--git-user-name/--git-user-email.",
+            file=sys.stderr,
+        )
     return state, include_dirty, resolved_identity
 
 
@@ -459,10 +477,19 @@ def resolve_dirty_mode(mode: str) -> bool:
 
 
 def load_run(config: Config, run_id: str) -> runs.RunMetadata:
-    run_dir = config.run_store / run_id
+    run_dir = resolve_run_dir(config, run_id)
     if not run_dir.exists():
         raise RuntimeError(f"unknown run id: {run_id}")
     return runs.read_metadata(run_dir)
+
+
+def resolve_run_dir(config: Config, run_id: str) -> Path:
+    """Resolve a run id to its directory, rejecting ids that escape the store."""
+    run_store = config.run_store.resolve()
+    candidate = (config.run_store / run_id).resolve()
+    if candidate.parent != run_store:
+        raise RuntimeError(f"invalid run id: {run_id}")
+    return candidate
 
 
 def resolve_run_image(

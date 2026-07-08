@@ -11,7 +11,7 @@ path = ".devcontainer/devcontainer.json"
 image_name = "agentbox-codex"
 base_image = "ubuntu:24.04"
 workspace_folder = "/workspace"
-codex_home = "/home/notai/config/codex"
+codex_home = "~/.codex"
 
 [git]
 # user_name = "Your Name"

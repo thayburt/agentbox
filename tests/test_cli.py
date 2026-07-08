@@ -248,6 +248,24 @@ user_email = "config@example.com"
                 with self.assertRaisesRegex(RuntimeError, "no Containerfile snapshot"):
                     cli.ensure_saved_run_image(config, metadata, dry_run=False)
 
+    def test_runs_prune_reports_unknown_and_rejects_escaping_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            (config.run_store / "keep").mkdir(parents=True)
+
+            errors = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
+                status = cli.cmd_runs_prune(
+                    self.args(repo=root, all=False, run_id=["missing", "keep", "../escape"])
+                )
+
+            text = errors.getvalue()
+            self.assertEqual(status, 2)
+            self.assertIn("no such run: missing", text)
+            self.assertIn("invalid run id: ../escape", text)
+            self.assertFalse((config.run_store / "keep").exists())
+
     def test_runs_import_uses_sign_imports_from_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")

@@ -9,9 +9,8 @@ from typing import Any
 
 UNSUPPORTED_FIELDS = {
     "dockerComposeFile",
-    "dockerComposeFile",
-    "composeFile",
     "service",
+    "runServices",
     "features",
 }
 
