@@ -35,9 +35,11 @@ Run tests with:
 uv run python -m unittest discover -s tests -v
 ```
 
-`agentbox` expects rootless Podman and mounts the selected harness state into the
-container. Codex uses `CODEX_HOME=/codex-home`, preferring the host `CODEX_HOME`
-environment variable when set, otherwise `~/.codex`.
+`agentbox` expects rootless Podman. Each harness driver declares its own state
+mounts and environment, while agentbox validates and renders Podman sandboxing,
+workspace mounts, image management, and run lifecycle behavior centrally. Codex
+uses `CODEX_HOME=/codex-home`, preferring the host `CODEX_HOME` environment
+variable when set, otherwise `~/.codex`.
 
 ## Run Harnesses
 
@@ -169,8 +171,11 @@ clone, not the original checkout.
 
 Kilo host state is mounted read-write under `/kilo-home` using XDG defaults and
 host environment overrides: `XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
-`XDG_STATE_HOME`, and `XDG_CACHE_HOME`. Existing `~/.kilo`, `~/.kilocode`,
-`KILO_CONFIG`, and `KILO_CONFIG_DIR` paths are mounted when present or set.
+`XDG_STATE_HOME`, and `XDG_CACHE_HOME`. Missing XDG state directories are
+created by agentbox when needed; `doctor` reports them as warnings rather than
+failures. Existing `~/.kilo` and `~/.kilocode` paths are mounted when present.
+`KILO_CONFIG` is mounted as a required file when set, and `KILO_CONFIG_DIR` is
+mounted as a directory when set.
 
 ## Bring Work Back
 

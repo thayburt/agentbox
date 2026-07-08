@@ -13,7 +13,7 @@ from .devcontainer import Devcontainer, load_devcontainer, shell_join
 from . import gitops
 from . import podman
 from . import runs
-from .drivers import all_drivers, canonical_driver_id, get_driver
+from .drivers import Diagnostic, all_drivers, canonical_driver_id, get_driver
 
 
 PULL_CHOICES = ("prompt", "branch", "ff-only", "later")
@@ -149,17 +149,18 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     version = podman.podman_version()
     rootless = podman.podman_rootless()
     checks = [
-        ("repo", str(config.repo_root), True),
-        ("podman", version or "not found", bool(version)),
-        ("rootless", str(rootless), rootless is True),
-        ("devcontainer", str(devcontainer.path) if devcontainer else "none", True),
+        Diagnostic("repo", str(config.repo_root), "ok"),
+        Diagnostic("podman", version or "not found", "ok" if version else "error"),
+        Diagnostic("rootless", str(rootless), "ok" if rootless is True else "error"),
+        Diagnostic("devcontainer", str(devcontainer.path) if devcontainer else "none", "ok"),
     ]
     for driver in all_drivers():
-        checks.extend(driver.doctor_checks(config.driver_settings(driver.id), dict(os.environ)))
-    for name, value, passed in checks:
-        ok = ok and passed
-        mark = "ok" if passed else "fail"
-        print(f"{mark:4} {name}: {value}")
+        checks.extend(driver.diagnostics(config.driver_settings(driver.id), dict(os.environ)))
+    for diagnostic in checks:
+        ok = ok and diagnostic.severity != "error"
+        mark = {"ok": "ok", "warning": "warn", "error": "fail"}[diagnostic.severity]
+        message = f" ({diagnostic.message})" if diagnostic.message else ""
+        print(f"{mark:4} {diagnostic.name}: {diagnostic.value}{message}")
     return 0 if ok else 1
 
 
@@ -269,9 +270,8 @@ def cmd_harness_run(args: argparse.Namespace) -> int:
     )
     prompt = " ".join(args.prompt).strip()
     driver = get_driver(driver_id)
-    command = prelude(devcontainer) + driver.launch_command(
-        workspace_path(config, devcontainer, driver_id), prompt
-    )
+    argv = driver.launch_argv(workspace_path(config, devcontainer, driver_id), prompt)
+    command = prelude(devcontainer) + "exec " + shlex.join(argv)
     status = run_container(
         config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run, driver_id
     )
@@ -742,7 +742,7 @@ def run_container(
     if dry_run:
         print(shlex.join(args))
         return 0
-    podman.ensure_state_mounts(config, driver_id, host_env)
+    podman.ensure_state_mounts(config, driver_id, host_env, workspace_path(config, devcontainer, driver_id))
     return subprocess.run(args).returncode
 
 

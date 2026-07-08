@@ -7,7 +7,7 @@ import subprocess
 
 from .config import Config
 from .devcontainer import Devcontainer
-from .drivers import default_codex_containerfile, get_driver
+from .drivers import MountSpec, get_driver
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -242,11 +242,13 @@ def render_run_command(
         "-v",
         f"{run_repo.resolve()}:{workspace}{run_repo_suffix}",
     ]
-    for key, value in driver.container_env(settings, host_env).items():
+    for key, value in driver.env(settings, host_env).items():
         args.extend(["-e", f"{key}={value}"])
-    for mount in driver.state_mounts(settings, host_env):
-        suffix = volume_suffix(config.selinux, shared=mount.shared)
-        args.extend(["-v", f"{mount.source.expanduser().resolve()}:{mount.target}{suffix}"])
+    mounts = validated_state_mounts(
+        driver.state_mounts(settings, host_env), workspace, check_sources=False
+    )
+    for mount in mounts:
+        args.extend(["-v", render_mount(mount, config.selinux)])
     if devcontainer:
         for key, value in devcontainer.env.items():
             args.extend(["-e", f"{key}={value}"])
@@ -257,18 +259,71 @@ def render_run_command(
     return args
 
 
-def ensure_state_mounts(config: Config, driver_id: str, host_env: dict[str, str]) -> None:
+def ensure_state_mounts(
+    config: Config, driver_id: str, host_env: dict[str, str], workspace: str | None = None
+) -> None:
     driver = get_driver(driver_id)
     settings = config.driver_settings(driver.id)
-    for mount in driver.state_mounts(settings, host_env):
+    workspace = workspace or settings.workspace_folder
+    mounts = validated_state_mounts(
+        driver.state_mounts(settings, host_env), workspace
+    )
+    for mount in mounts:
+        if mount.kind == "directory" and mount.create:
+            mount.source.expanduser().mkdir(parents=True, exist_ok=True)
+
+
+def validated_state_mounts(
+    mounts: list[MountSpec], workspace: str, *, check_sources: bool = True
+) -> list[MountSpec]:
+    rendered: list[MountSpec] = []
+    targets = {workspace}
+    for mount in mounts:
+        validate_mount(mount, workspace, targets)
         source = mount.source.expanduser()
-        if source.exists():
+        if mount.optional and not source.exists():
             continue
-        if not mount.required:
+        if not check_sources:
+            rendered.append(mount)
             continue
-        if mount.target == "/kilo-host/KILO_CONFIG":
-            raise RuntimeError(f"KILO_CONFIG points to missing file: {source}")
-        source.mkdir(parents=True, exist_ok=True)
+        if mount.kind == "file" and not source.exists():
+            raise RuntimeError(f"required file mount source is missing: {source}")
+        if mount.kind == "directory" and not source.exists() and not mount.create:
+            raise RuntimeError(f"required directory mount source is missing: {source}")
+        rendered.append(mount)
+    return rendered
+
+
+def validate_mount(mount: MountSpec, workspace: str, targets: set[str]) -> None:
+    if not mount.target.startswith("/"):
+        raise RuntimeError(f"mount target must be absolute: {mount.target}")
+    normalized_target = mount.target.rstrip("/") or "/"
+    normalized_workspace = workspace.rstrip("/") or "/"
+    if normalized_target in {"/", normalized_workspace} or normalized_target.startswith(
+        normalized_workspace + "/"
+    ):
+        raise RuntimeError(f"mount target interferes with workspace: {mount.target}")
+    if normalized_target in targets:
+        raise RuntimeError(f"duplicate mount target: {mount.target}")
+    source = mount.source.expanduser()
+    if source.resolve() == Path("/"):
+        raise RuntimeError(f"mount source must not be root: {source}")
+    targets.add(normalized_target)
+
+
+def render_mount(mount: MountSpec, selinux: str) -> str:
+    return f"{mount.source.expanduser().resolve()}:{mount.target}{volume_suffix_for_mount(selinux, mount)}"
+
+
+def volume_suffix_for_mount(mode: str, mount: MountSpec) -> str:
+    options: list[str] = []
+    if mount.readonly:
+        options.append("ro")
+    if mount.relabel != "none":
+        suffix = volume_suffix(mode, shared=mount.relabel == "shared")
+        if suffix:
+            options.append(suffix.removeprefix(":"))
+    return ":" + ",".join(options) if options else ""
 
 
 def volume_suffix(mode: str, *, shared: bool = False) -> str:

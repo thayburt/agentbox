@@ -6,6 +6,7 @@ import unittest
 from unittest import mock
 
 from agentbox.config import Config
+from agentbox.drivers import CodexSettings, MountSpec, get_driver
 from agentbox import podman
 from agentbox.podman import render_run_command, volume_suffix
 
@@ -18,19 +19,7 @@ class PodmanTests(unittest.TestCase):
             run_repo = root / "run" / "repo"
             codex_home.mkdir()
             run_repo.mkdir(parents=True)
-            config = Config(
-                repo_root=root,
-                run_store=root / "runs",
-                devcontainer=None,
-                image_name="agentbox-codex",
-                base_image="ubuntu:24.04",
-                codex_home=codex_home,
-                workspace_folder="/workspace",
-                selinux="disabled",
-                git_user_name=None,
-                git_user_email=None,
-                sign_imports=False,
-            )
+            config = self.config(root, codex_home=codex_home)
             cmd = render_run_command(
                 config=config,
                 devcontainer=None,
@@ -251,19 +240,115 @@ class PodmanTests(unittest.TestCase):
                     host_env={"KILO_CONFIG_CONTENT": "not-json"},
                 )
 
-    def config(self, root: Path) -> Config:
+    def test_ensure_state_mounts_creates_required_directories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.config(root)
+
+            podman.ensure_state_mounts(config, "codex", {})
+
+            self.assertTrue(config.codex_home.is_dir())
+
+    def test_optional_missing_mounts_are_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mount = MountSpec(root / "missing", "/state", "directory", optional=True)
+
+            self.assertEqual(podman.validated_state_mounts([mount], "/workspace"), [])
+
+    def test_required_missing_file_mount_errors_generically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mount = MountSpec(root / "missing.json", "/state/config.json", "file")
+
+            with self.assertRaisesRegex(RuntimeError, "required file mount source is missing"):
+                podman.validated_state_mounts([mount], "/workspace")
+
+    def test_readonly_mount_renders_with_ro_and_selinux_suffix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "config.json"
+            source.write_text("{}\n")
+            mount = MountSpec(source, "/state/config.json", "file", readonly=True)
+
+            self.assertEqual(
+                podman.render_mount(mount, "z"),
+                f"{source.resolve()}:/state/config.json:ro,z",
+            )
+
+    def test_mounts_targeting_workspace_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "state"
+            source.mkdir()
+
+            for target in ("/workspace", "/workspace/state"):
+                with self.subTest(target=target):
+                    mount = MountSpec(source, target, "directory")
+                    with self.assertRaisesRegex(RuntimeError, "interferes with workspace"):
+                        podman.validated_state_mounts([mount], "/workspace")
+
+    def test_duplicate_mount_targets_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "state"
+            source.mkdir()
+            mounts = [
+                MountSpec(source, "/state", "directory"),
+                MountSpec(source, "/state", "directory"),
+            ]
+
+            with self.assertRaisesRegex(RuntimeError, "duplicate mount target"):
+                podman.validated_state_mounts(mounts, "/workspace")
+
+    def test_host_source_root_is_rejected(self):
+        mount = MountSpec(Path("/"), "/state", "directory")
+
+        with self.assertRaisesRegex(RuntimeError, "must not be root"):
+            podman.validated_state_mounts([mount], "/workspace")
+
+    def test_kilo_config_is_required_file_mount_when_set(self):
+        driver = get_driver("kilo")
+        settings = driver.default_settings({})
+        mounts = driver.state_mounts(settings, {"KILO_CONFIG": "/tmp/kilo.json"})
+        config_mount = next(mount for mount in mounts if mount.target == "/kilo-host/KILO_CONFIG")
+
+        self.assertEqual(config_mount.kind, "file")
+        self.assertFalse(config_mount.optional)
+
+    def test_render_run_command_allows_missing_required_file_for_dry_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+            cmd = render_run_command(
+                config=self.config(root),
+                devcontainer=None,
+                image="agentbox-kilo:test",
+                run_repo=run_repo,
+                command="exec kilo",
+                driver_id="kilo",
+                host_env={"KILO_CONFIG": str(root / "missing.json")},
+            )
+
+            self.assertIn(f"{root / 'missing.json'}:/kilo-host/KILO_CONFIG", cmd)
+
+    def config(self, root: Path, codex_home: Path | None = None) -> Config:
+        codex_settings = CodexSettings(
+            image_name="agentbox-codex",
+            base_image="ubuntu:24.04",
+            codex_home=codex_home or root / "codex-home",
+            workspace_folder="/workspace",
+        )
         return Config(
             repo_root=root,
             run_store=root / "runs",
             devcontainer=None,
-            image_name="agentbox-codex",
-            base_image="ubuntu:24.04",
-            codex_home=root / "codex-home",
-            workspace_folder="/workspace",
             selinux="disabled",
             git_user_name=None,
             git_user_email=None,
             sign_imports=False,
+            harnesses={
+                "codex": codex_settings,
+                "kilo": get_driver("kilo").default_settings({}),
+            },
         )
 
 
