@@ -152,7 +152,7 @@ def cmd_codex_run(args: argparse.Namespace) -> int:
         git_user_name=args.git_user_name,
         git_user_email=args.git_user_email,
     )
-    image = args.image or podman.ensure_managed_image(config, dry_run=args.dry_run)
+    image, managed_containerfile = resolve_run_image(config, args.image, args.dry_run)
     _, metadata = prepare_run(
         config,
         devcontainer,
@@ -162,6 +162,7 @@ def cmd_codex_run(args: argparse.Namespace) -> int:
         git_user_name=args.git_user_name,
         git_user_email=args.git_user_email,
         preflight=preflight,
+        containerfile=managed_containerfile,
     )
     prompt = " ".join(args.prompt).strip()
     codex_args = [
@@ -190,7 +191,7 @@ def cmd_codex_shell(args: argparse.Namespace) -> int:
     should_complete = False
     if args.run_id:
         metadata = load_run(config, args.run_id)
-        ensure_saved_run_image(config, metadata.image, args.dry_run)
+        ensure_saved_run_image(config, metadata, args.dry_run)
     else:
         preflight = resolve_run_inputs(
             config,
@@ -198,7 +199,7 @@ def cmd_codex_shell(args: argparse.Namespace) -> int:
             git_user_name=args.git_user_name,
             git_user_email=args.git_user_email,
         )
-        image = args.image or podman.ensure_managed_image(config, dry_run=args.dry_run)
+        image, managed_containerfile = resolve_run_image(config, args.image, args.dry_run)
         _, metadata = prepare_run(
             config,
             devcontainer,
@@ -208,6 +209,7 @@ def cmd_codex_shell(args: argparse.Namespace) -> int:
             git_user_name=args.git_user_name,
             git_user_email=args.git_user_email,
             preflight=preflight,
+            containerfile=managed_containerfile,
         )
         should_complete = True
     command = prelude(devcontainer) + "exec bash"
@@ -230,7 +232,7 @@ def cmd_runs_list(args: argparse.Namespace) -> int:
 def cmd_runs_enter(args: argparse.Namespace) -> int:
     config, devcontainer = context(args)
     metadata = load_run(config, args.run_id)
-    ensure_saved_run_image(config, metadata.image, args.dry_run)
+    ensure_saved_run_image(config, metadata, args.dry_run)
     command = prelude(devcontainer) + "exec bash"
     return run_container(
         config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run
@@ -311,6 +313,7 @@ def prepare_run(
     git_user_name: str | None = None,
     git_user_email: str | None = None,
     preflight: tuple[gitops.RepoState, bool, gitops.GitIdentity] | None = None,
+    containerfile: Path | None = None,
 ) -> tuple[Path, runs.RunMetadata]:
     if preflight is None:
         preflight = resolve_run_inputs(
@@ -331,11 +334,33 @@ def prepare_run(
         return run_dir, metadata
     gitops.clone_repo(config.repo_root, run_repo, include_dirty=include_dirty)
     gitops.apply_git_identity(run_repo, resolved_identity)
+    snapshot = snapshot_containerfile(run_dir, containerfile)
     metadata = runs.create_metadata(
-        run_id, config.repo_root, run_repo, state.branch, state.head, image
+        run_id,
+        config.repo_root,
+        run_repo,
+        state.branch,
+        state.head,
+        image,
+        containerfile=snapshot,
     )
     runs.write_metadata(run_dir, metadata)
     return run_dir, metadata
+
+
+def snapshot_containerfile(run_dir: Path, containerfile: Path | None) -> str | None:
+    """Copy the Containerfile used for a managed image into the run directory.
+
+    This makes the run self-contained: the exact build recipe survives later
+    edits to the shared harness Containerfile, so the run can be rebuilt and
+    re-entered even after its content-addressed image tag has changed.
+    """
+    if containerfile is None or not containerfile.exists():
+        return None
+    run_dir.mkdir(parents=True, exist_ok=True)
+    snapshot = run_dir / "Containerfile"
+    snapshot.write_text(containerfile.read_text())
+    return str(snapshot)
 
 
 def resolve_run_inputs(
@@ -376,24 +401,37 @@ def load_run(config: Config, run_id: str) -> runs.RunMetadata:
     return runs.read_metadata(run_dir)
 
 
-def ensure_saved_run_image(config: Config, image: str, dry_run: bool) -> None:
-    containerfile = podman.harness_containerfile_path(config)
-    containerfile_exists = containerfile.exists()
-    if containerfile_exists:
-        current_image = podman.current_managed_image(config, dry_run=dry_run)
-    else:
-        current_image = podman.harness_image_name(
-            config, podman.default_containerfile_digest(config.base_image)
-        )
-    if image != current_image:
-        return
+def resolve_run_image(
+    config: Config, image_override: str | None, dry_run: bool
+) -> tuple[str, Path | None]:
+    """Return the image to run and, for managed images, its Containerfile.
+
+    An explicit --image override is used verbatim with no snapshot, since its
+    build recipe is not owned by agentbox.
+    """
+    if image_override:
+        return image_override, None
+    image = podman.ensure_managed_image(config, dry_run=dry_run)
+    return image, podman.harness_containerfile_path(config)
+
+
+def ensure_saved_run_image(config: Config, metadata: runs.RunMetadata, dry_run: bool) -> None:
+    image = metadata.image
+    snapshot = Path(metadata.containerfile) if metadata.containerfile else None
     if dry_run:
-        if not containerfile_exists:
-            print(f"would create {containerfile}")
         print(shlex.join(["podman", "image", "exists", image]))
-        print(shlex.join(podman.managed_build_command(config, image)))
-    elif not podman.image_exists(image):
-        podman.build_image(config, None)
+        if snapshot:
+            print(shlex.join(podman.managed_build_command(config, image, snapshot)))
+        return
+    if podman.image_exists(image):
+        return
+    if snapshot and snapshot.exists():
+        podman.build_tagged_image(config, snapshot, image)
+        return
+    raise RuntimeError(
+        f"image {image} for run {metadata.id} is missing and has no Containerfile "
+        f"snapshot to rebuild from; rebuild it manually or rerun with --image"
+    )
 
 
 def complete_run(

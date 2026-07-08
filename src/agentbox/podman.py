@@ -52,26 +52,35 @@ def build_image(
     del devcontainer
     image = current_managed_image(config, dry_run=dry_run)
     containerfile = harness_containerfile_path(config)
+    return build_tagged_image(config, containerfile, image, dry_run=dry_run)
+
+
+def build_tagged_image(
+    config: Config,
+    containerfile: Path,
+    image: str,
+    *,
+    dry_run: bool = False,
+) -> list[str]:
     context = config.repo_root / ".agentbox"
     exists_cmd = ["podman", "image", "exists", image]
+    cmd = managed_build_command(config, image, containerfile)
     if dry_run:
         print(shlex.join(exists_cmd))
-    elif image_exists(image):
+        print(shlex.join(cmd))
+        return cmd
+    if image_exists(image):
         print(f"image {image} already exists; skipping build")
         return exists_cmd
 
-    cmd = managed_build_command(config, image)
-    if dry_run:
-        print(shlex.join(cmd))
-    else:
-        context.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile("w", delete=False) as ignorefile:
-            ignorefile.write("runs\n")
-            ignorefile_path = ignorefile.name
-        try:
-            subprocess.run([*cmd[:2], "--ignorefile", ignorefile_path, *cmd[2:]], check=True)
-        finally:
-            Path(ignorefile_path).unlink(missing_ok=True)
+    context.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", delete=False) as ignorefile:
+        ignorefile.write("runs\n")
+        ignorefile_path = ignorefile.name
+    try:
+        subprocess.run([*cmd[:2], "--ignorefile", ignorefile_path, *cmd[2:]], check=True)
+    finally:
+        Path(ignorefile_path).unlink(missing_ok=True)
     return cmd
 
 
@@ -105,8 +114,11 @@ def ensure_managed_image(config: Config, *, dry_run: bool = False) -> str:
     return image
 
 
-def managed_build_command(config: Config, image: str) -> list[str]:
-    containerfile = harness_containerfile_path(config)
+def managed_build_command(
+    config: Config, image: str, containerfile: Path | None = None
+) -> list[str]:
+    if containerfile is None:
+        containerfile = harness_containerfile_path(config)
     context = config.repo_root / ".agentbox"
     return ["podman", "build", "-t", image, "-f", str(containerfile), str(context)]
 

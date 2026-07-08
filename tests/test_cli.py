@@ -116,6 +116,26 @@ user_email = "config@example.com"
             _, metadata = cli.prepare_run(config, None, "ignore", "custom/image:tag")
 
             self.assertEqual(metadata.image, "custom/image:tag")
+            self.assertIsNone(metadata.containerfile)
+
+    def test_prepare_run_snapshots_managed_containerfile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            containerfile = cli.podman.ensure_harness_containerfile(config)
+
+            run_dir, metadata = cli.prepare_run(
+                config,
+                None,
+                "ignore",
+                "agentbox-codex:test",
+                containerfile=containerfile,
+            )
+
+            self.assertIsNotNone(metadata.containerfile)
+            snapshot = Path(metadata.containerfile)
+            self.assertEqual(snapshot, run_dir / "Containerfile")
+            self.assertEqual(snapshot.read_text(), containerfile.read_text())
 
     def test_codex_run_image_override_bypasses_managed_image(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -185,22 +205,48 @@ user_email = "config@example.com"
 
             ensure.assert_not_called()
 
-    def test_saved_run_dry_run_reports_default_image_creation_and_build(self):
+    def test_saved_run_dry_run_reports_rebuild_from_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
-            image = cli.podman.harness_image_name(
-                config, cli.podman.default_containerfile_digest(config.base_image)
+            snapshot = config.run_store / "run-a" / "Containerfile"
+            snapshot.parent.mkdir(parents=True, exist_ok=True)
+            snapshot.write_text("FROM ubuntu:24.04\n")
+            metadata = runs.create_metadata(
+                "run-a",
+                root,
+                config.run_store / "run-a" / "repo",
+                "main",
+                "0" * 40,
+                "agentbox-codex:test",
+                containerfile=str(snapshot),
             )
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                cli.ensure_saved_run_image(config, image, dry_run=True)
+                cli.ensure_saved_run_image(config, metadata, dry_run=True)
 
             text = output.getvalue()
-            self.assertIn("would create", text)
             self.assertIn("podman image exists", text)
             self.assertIn("podman build", text)
+            self.assertIn(str(snapshot), text)
+
+    def test_saved_run_without_snapshot_errors_when_image_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            metadata = runs.create_metadata(
+                "run-b",
+                root,
+                config.run_store / "run-b" / "repo",
+                "main",
+                "0" * 40,
+                "agentbox-codex:gone",
+            )
+
+            with mock.patch("agentbox.cli.podman.image_exists", return_value=False):
+                with self.assertRaisesRegex(RuntimeError, "no Containerfile snapshot"):
+                    cli.ensure_saved_run_image(config, metadata, dry_run=False)
 
     def test_runs_import_uses_sign_imports_from_config(self):
         with tempfile.TemporaryDirectory() as tmp:

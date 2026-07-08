@@ -54,6 +54,12 @@ agentbox-codex:<full-containerfile-sha256>
 exists locally. `agentbox codex run` and `agentbox codex shell` automatically
 build the current managed image when it is missing.
 
+Each run also snapshots the Containerfile used to build its image into
+`.agentbox/runs/<run-id>/Containerfile`. This keeps runs reproducible: even
+after you edit `.agentbox/codex.Containerfile` (which changes the managed image
+tag), `agentbox runs enter` and `agentbox codex shell --run` can rebuild the
+run's original image from its snapshot when it is no longer present locally.
+
 Pass `--image IMAGE` to bypass the managed Containerfile image entirely:
 
 ```bash

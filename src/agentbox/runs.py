@@ -19,6 +19,7 @@ class RunMetadata:
     base_branch: str
     base_head: str
     image: str
+    containerfile: str | None = None
 
 
 def new_run_id() -> str:
@@ -33,6 +34,7 @@ def create_metadata(
     base_branch: str,
     base_head: str,
     image: str,
+    containerfile: str | None = None,
 ) -> RunMetadata:
     return RunMetadata(
         id=run_id,
@@ -42,6 +44,7 @@ def create_metadata(
         base_branch=base_branch,
         base_head=base_head,
         image=image,
+        containerfile=containerfile,
     )
 
 
