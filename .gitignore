@@ -1,4 +1,4 @@
-.agentbox/
+.agentbox/runs/
 .venv/
 __pycache__/
 *.py[cod]

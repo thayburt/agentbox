@@ -4,6 +4,7 @@ from pathlib import Path
 import hashlib
 import shlex
 import subprocess
+import tempfile
 
 from .config import Config
 from .devcontainer import Devcontainer
@@ -37,50 +38,99 @@ def podman_rootless() -> bool | None:
     return None
 
 
-def harness_image_name(config: Config, devcontainer: Devcontainer | None) -> str:
-    seed = str(config.base_image)
-    if devcontainer:
-        seed += str(devcontainer.image or "")
-        seed += str(devcontainer.build_context or "")
-        seed += str(devcontainer.build_dockerfile or "")
-    digest = hashlib.sha256(seed.encode()).hexdigest()[:12]
+def harness_containerfile_path(config: Config, harness: str = "codex") -> Path:
+    return config.repo_root / ".agentbox" / f"{harness}.Containerfile"
+
+
+def harness_image_name(config: Config, digest: str) -> str:
     return f"{config.image_name}:{digest}"
 
 
 def build_image(
     config: Config, devcontainer: Devcontainer | None, dry_run: bool = False
 ) -> list[str]:
-    state_dir = config.repo_root / ".agentbox" / "images" / "codex"
+    del devcontainer
+    image = current_managed_image(config, dry_run=dry_run)
+    containerfile = harness_containerfile_path(config)
+    context = config.repo_root / ".agentbox"
+    exists_cmd = ["podman", "image", "exists", image]
+    if dry_run:
+        print(shlex.join(exists_cmd))
+    elif image_exists(image):
+        print(f"image {image} already exists; skipping build")
+        return exists_cmd
 
-    base = config.base_image
-    if devcontainer and devcontainer.build_context and devcontainer.build_dockerfile:
-        base = f"{config.image_name}-base:{_hash_path(devcontainer.build_context)}"
-        base_cmd = [
-            "podman",
-            "build",
-            "-t",
-            base,
-            "-f",
-            str(devcontainer.build_dockerfile),
-            str(devcontainer.build_context),
-        ]
-        if dry_run:
-            print(shlex.join(base_cmd))
-        else:
-            subprocess.run(base_cmd, check=True)
-    elif devcontainer and devcontainer.image:
-        base = devcontainer.image
-
-    image = harness_image_name(config, devcontainer)
-    containerfile = state_dir / "Containerfile"
-    cmd = ["podman", "build", "-t", image, "-f", str(containerfile), str(state_dir)]
+    cmd = managed_build_command(config, image)
     if dry_run:
         print(shlex.join(cmd))
     else:
-        state_dir.mkdir(parents=True, exist_ok=True)
-        containerfile.write_text(_containerfile(base))
-        subprocess.run(cmd, check=True)
+        context.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", delete=False) as ignorefile:
+            ignorefile.write("runs\n")
+            ignorefile_path = ignorefile.name
+        try:
+            subprocess.run([*cmd[:2], "--ignorefile", ignorefile_path, *cmd[2:]], check=True)
+        finally:
+            Path(ignorefile_path).unlink(missing_ok=True)
     return cmd
+
+
+def image_exists(image: str) -> bool:
+    result = subprocess.run(
+        ["podman", "image", "exists", image],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def current_managed_image(config: Config, *, dry_run: bool = False) -> str:
+    path = ensure_harness_containerfile(config, dry_run=dry_run)
+    if dry_run and not path.exists():
+        digest = default_containerfile_digest(config.base_image)
+    else:
+        digest = containerfile_digest(path)
+    return harness_image_name(config, digest)
+
+
+def ensure_managed_image(config: Config, *, dry_run: bool = False) -> str:
+    image = current_managed_image(config, dry_run=dry_run)
+    if dry_run:
+        print(shlex.join(["podman", "image", "exists", image]))
+        print(shlex.join(managed_build_command(config, image)))
+    elif not image_exists(image):
+        build_image(config, None)
+    return image
+
+
+def managed_build_command(config: Config, image: str) -> list[str]:
+    containerfile = harness_containerfile_path(config)
+    context = config.repo_root / ".agentbox"
+    return ["podman", "build", "-t", image, "-f", str(containerfile), str(context)]
+
+
+def ensure_harness_containerfile(
+    config: Config, harness: str = "codex", dry_run: bool = False
+) -> Path:
+    path = harness_containerfile_path(config, harness)
+    if path.exists():
+        return path
+    if dry_run:
+        print(f"would create {path}")
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(default_codex_containerfile(config.base_image))
+    return path
+
+
+def containerfile_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def default_containerfile_digest(base_image: str) -> str:
+    return hashlib.sha256(default_codex_containerfile(base_image).encode()).hexdigest()
 
 
 def render_run_command(
@@ -132,8 +182,8 @@ def volume_suffix(mode: str) -> str:
     return ""
 
 
-def _containerfile(base: str) -> str:
-    return f"""FROM {base}
+def default_codex_containerfile(base_image: str) -> str:
+    return f"""FROM {base_image}
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CODEX_NON_INTERACTIVE=1
@@ -159,7 +209,3 @@ ENV CODEX_HOME=/codex-home
 
 WORKDIR /workspace
 """
-
-
-def _hash_path(path: Path) -> str:
-    return hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:12]

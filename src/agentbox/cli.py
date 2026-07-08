@@ -61,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt"
     )
     codex_run.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
+    codex_run.add_argument("--image", default=None)
     codex_run.add_argument("--git-user-name", default=None)
     codex_run.add_argument("--git-user-email", default=None)
     add_sign_import_args(codex_run)
@@ -73,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt"
     )
     codex_shell.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
+    codex_shell.add_argument("--image", default=None)
     codex_shell.add_argument("--git-user-name", default=None)
     codex_shell.add_argument("--git-user-email", default=None)
     add_sign_import_args(codex_shell)
@@ -104,9 +106,16 @@ def cmd_init(args: argparse.Namespace) -> int:
     path = root / CONFIG_FILE
     if path.exists():
         print(f"{path} already exists")
-        return 0
-    path.write_text(default_toml())
-    print(f"created {path}")
+    else:
+        path.write_text(default_toml())
+        print(f"created {path}")
+    config = load_config(root)
+    containerfile = podman.harness_containerfile_path(config)
+    if containerfile.exists():
+        print(f"{containerfile} already exists")
+    else:
+        podman.ensure_harness_containerfile(config)
+        print(f"created {containerfile}")
     return 0
 
 
@@ -137,13 +146,22 @@ def cmd_codex_build(args: argparse.Namespace) -> int:
 
 def cmd_codex_run(args: argparse.Namespace) -> int:
     config, devcontainer = context(args)
+    preflight = resolve_run_inputs(
+        config,
+        args.dirty,
+        git_user_name=args.git_user_name,
+        git_user_email=args.git_user_email,
+    )
+    image = args.image or podman.ensure_managed_image(config, dry_run=args.dry_run)
     _, metadata = prepare_run(
         config,
         devcontainer,
         args.dirty,
+        image,
         dry_run=args.dry_run,
         git_user_name=args.git_user_name,
         git_user_email=args.git_user_email,
+        preflight=preflight,
     )
     prompt = " ".join(args.prompt).strip()
     codex_args = [
@@ -172,14 +190,24 @@ def cmd_codex_shell(args: argparse.Namespace) -> int:
     should_complete = False
     if args.run_id:
         metadata = load_run(config, args.run_id)
+        ensure_saved_run_image(config, metadata.image, args.dry_run)
     else:
+        preflight = resolve_run_inputs(
+            config,
+            args.dirty,
+            git_user_name=args.git_user_name,
+            git_user_email=args.git_user_email,
+        )
+        image = args.image or podman.ensure_managed_image(config, dry_run=args.dry_run)
         _, metadata = prepare_run(
             config,
             devcontainer,
             args.dirty,
+            image,
             dry_run=args.dry_run,
             git_user_name=args.git_user_name,
             git_user_email=args.git_user_email,
+            preflight=preflight,
         )
         should_complete = True
     command = prelude(devcontainer) + "exec bash"
@@ -202,6 +230,7 @@ def cmd_runs_list(args: argparse.Namespace) -> int:
 def cmd_runs_enter(args: argparse.Namespace) -> int:
     config, devcontainer = context(args)
     metadata = load_run(config, args.run_id)
+    ensure_saved_run_image(config, metadata.image, args.dry_run)
     command = prelude(devcontainer) + "exec bash"
     return run_container(
         config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run
@@ -277,21 +306,21 @@ def prepare_run(
     config: Config,
     devcontainer: Devcontainer | None,
     dirty_mode: str,
+    image: str,
     dry_run: bool = False,
     git_user_name: str | None = None,
     git_user_email: str | None = None,
+    preflight: tuple[gitops.RepoState, bool, gitops.GitIdentity] | None = None,
 ) -> tuple[Path, runs.RunMetadata]:
-    state = gitops.repo_state(config.repo_root)
-    include_dirty = False
-    if state.dirty:
-        include_dirty = resolve_dirty_mode(dirty_mode)
-    resolved_identity = gitops.resolve_git_identity(
-        config.repo_root,
-        user_name=git_user_name if git_user_name is not None else config.git_user_name,
-        user_email=git_user_email if git_user_email is not None else config.git_user_email,
-    )
+    if preflight is None:
+        preflight = resolve_run_inputs(
+            config,
+            dirty_mode,
+            git_user_name=git_user_name,
+            git_user_email=git_user_email,
+        )
+    state, include_dirty, resolved_identity = preflight
 
-    image = podman.harness_image_name(config, devcontainer)
     run_id = runs.new_run_id()
     run_dir = config.run_store / run_id
     run_repo = run_dir / "repo"
@@ -307,6 +336,24 @@ def prepare_run(
     )
     runs.write_metadata(run_dir, metadata)
     return run_dir, metadata
+
+
+def resolve_run_inputs(
+    config: Config,
+    dirty_mode: str,
+    git_user_name: str | None = None,
+    git_user_email: str | None = None,
+) -> tuple[gitops.RepoState, bool, gitops.GitIdentity]:
+    state = gitops.repo_state(config.repo_root)
+    include_dirty = False
+    if state.dirty:
+        include_dirty = resolve_dirty_mode(dirty_mode)
+    resolved_identity = gitops.resolve_git_identity(
+        config.repo_root,
+        user_name=git_user_name if git_user_name is not None else config.git_user_name,
+        user_email=git_user_email if git_user_email is not None else config.git_user_email,
+    )
+    return state, include_dirty, resolved_identity
 
 
 def resolve_dirty_mode(mode: str) -> bool:
@@ -327,6 +374,26 @@ def load_run(config: Config, run_id: str) -> runs.RunMetadata:
     if not run_dir.exists():
         raise RuntimeError(f"unknown run id: {run_id}")
     return runs.read_metadata(run_dir)
+
+
+def ensure_saved_run_image(config: Config, image: str, dry_run: bool) -> None:
+    containerfile = podman.harness_containerfile_path(config)
+    containerfile_exists = containerfile.exists()
+    if containerfile_exists:
+        current_image = podman.current_managed_image(config, dry_run=dry_run)
+    else:
+        current_image = podman.harness_image_name(
+            config, podman.default_containerfile_digest(config.base_image)
+        )
+    if image != current_image:
+        return
+    if dry_run:
+        if not containerfile_exists:
+            print(f"would create {containerfile}")
+        print(shlex.join(["podman", "image", "exists", image]))
+        print(shlex.join(podman.managed_build_command(config, image)))
+    elif not podman.image_exists(image):
+        podman.build_image(config, None)
 
 
 def complete_run(

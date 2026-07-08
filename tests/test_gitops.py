@@ -116,7 +116,7 @@ class GitOpsTests(unittest.TestCase):
             (run_repo / "feature.txt").write_text("feature\n")
             self.git(run_repo, "add", "feature.txt")
             self.git(run_repo, "commit", "-m", "feature change")
-            self.git(run_repo, "checkout", "master")
+            self.git(run_repo, "checkout", state.branch)
             self.git(run_repo, "merge", "--no-ff", "feature", "-m", "merge feature")
 
             with self.assertRaisesRegex(RuntimeError, "merge commits"):

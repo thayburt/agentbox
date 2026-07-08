@@ -1,8 +1,10 @@
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from agentbox.config import Config
+from agentbox import podman
 from agentbox.podman import render_run_command, volume_suffix
 
 
@@ -43,6 +45,71 @@ class PodmanTests(unittest.TestCase):
         self.assertEqual(volume_suffix("disabled"), "")
         self.assertEqual(volume_suffix("z"), ":z")
         self.assertEqual(volume_suffix("Z"), ":Z")
+
+    def test_ensure_harness_containerfile_writes_default_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            path = podman.ensure_harness_containerfile(config)
+            original = path.read_text()
+
+            path.write_text("custom\n")
+            podman.ensure_harness_containerfile(config)
+
+            self.assertIn("FROM ubuntu:24.04", original)
+            self.assertEqual(path.read_text(), "custom\n")
+
+    def test_content_changes_produce_different_managed_image_tags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            path = podman.ensure_harness_containerfile(config)
+            first = podman.current_managed_image(config)
+
+            path.write_text(path.read_text() + "\nRUN true\n")
+            second = podman.current_managed_image(config)
+
+            self.assertNotEqual(first, second)
+            self.assertTrue(first.startswith("agentbox-codex:"))
+
+    def test_build_image_skips_existing_managed_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            podman.ensure_harness_containerfile(config)
+            with mock.patch("agentbox.podman.image_exists", return_value=True), mock.patch(
+                "agentbox.podman.subprocess.run"
+            ) as run:
+                podman.build_image(config, None)
+
+            run.assert_not_called()
+
+    def test_build_image_uses_agentbox_containerfile_and_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            podman.ensure_harness_containerfile(config)
+            with mock.patch("agentbox.podman.image_exists", return_value=False), mock.patch(
+                "agentbox.podman.subprocess.run"
+            ) as run:
+                podman.build_image(config, None)
+
+            cmd = run.call_args.args[0]
+            self.assertIn("podman", cmd)
+            self.assertIn("build", cmd)
+            self.assertIn(str(Path(tmp) / ".agentbox" / "codex.Containerfile"), cmd)
+            self.assertEqual(cmd[-1], str(Path(tmp) / ".agentbox"))
+
+    def config(self, root: Path) -> Config:
+        return Config(
+            repo_root=root,
+            run_store=root / "runs",
+            devcontainer=None,
+            image_name="agentbox-codex",
+            base_image="ubuntu:24.04",
+            codex_home=root / "codex-home",
+            workspace_folder="/workspace",
+            selinux="disabled",
+            git_user_name=None,
+            git_user_email=None,
+            sign_imports=False,
+        )
 
 
 if __name__ == "__main__":

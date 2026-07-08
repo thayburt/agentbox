@@ -4,6 +4,7 @@ import io
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from agentbox import cli, gitops, runs
 from agentbox.config import load_config
@@ -26,12 +27,40 @@ class CliRunPreparationTests(unittest.TestCase):
         self.assertTrue(enabled.sign_imports)
         self.assertFalse(disabled.sign_imports)
 
+    def test_parser_accepts_image_for_run_and_shell(self):
+        parser = cli.build_parser()
+
+        run = parser.parse_args(["codex", "run", "--image", "ubuntu:24.04"])
+        shell = parser.parse_args(["codex", "shell", "--image", "localhost/custom:dev"])
+
+        self.assertEqual(run.image, "ubuntu:24.04")
+        self.assertEqual(shell.image, "localhost/custom:dev")
+
+    def test_init_creates_config_and_containerfile_without_overwriting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            args = self.args(repo=root)
+
+            with self.quiet_output():
+                status = cli.cmd_init(args)
+
+            containerfile = root / ".agentbox" / "codex.Containerfile"
+            self.assertEqual(status, 0)
+            self.assertTrue((root / "agentbox.toml").exists())
+            self.assertIn("FROM ubuntu:24.04", containerfile.read_text())
+
+            containerfile.write_text("custom\n")
+            with self.quiet_output():
+                cli.cmd_init(args)
+
+            self.assertEqual(containerfile.read_text(), "custom\n")
+
     def test_prepare_run_applies_identity_from_host_git_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
 
-            _, metadata = cli.prepare_run(config, None, "ignore")
+            _, metadata = cli.prepare_run(config, None, "ignore", "agentbox-codex:test")
 
             run_repo = Path(metadata.run_repo)
             self.assertEqual(
@@ -64,6 +93,7 @@ user_email = "config@example.com"
                 config,
                 None,
                 "ignore",
+                "agentbox-codex:test",
                 git_user_name="CLI User",
                 git_user_email="cli@example.com",
             )
@@ -77,6 +107,100 @@ user_email = "config@example.com"
                 self.git_output(run_repo, "config", "--local", "--get", "user.email"),
                 "cli@example.com",
             )
+
+    def test_prepare_run_stores_resolved_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+
+            _, metadata = cli.prepare_run(config, None, "ignore", "custom/image:tag")
+
+            self.assertEqual(metadata.image, "custom/image:tag")
+
+    def test_codex_run_image_override_bypasses_managed_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            args = self.args(
+                repo=root,
+                image="ubuntu:24.04",
+                dirty="ignore",
+                dry_run=True,
+                git_user_name=None,
+                git_user_email=None,
+                prompt=[],
+                pull="later",
+                sign_imports=None,
+            )
+
+            with mock.patch("agentbox.cli.podman.ensure_managed_image") as ensure:
+                with self.quiet_output():
+                    status = cli.cmd_codex_run(args)
+
+            self.assertEqual(status, 0)
+            ensure.assert_not_called()
+
+    def test_default_codex_run_auto_builds_managed_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            args = self.args(
+                repo=root,
+                image=None,
+                dirty="ignore",
+                dry_run=True,
+                git_user_name=None,
+                git_user_email=None,
+                prompt=[],
+                pull="later",
+                sign_imports=None,
+            )
+
+            with mock.patch(
+                "agentbox.cli.podman.ensure_managed_image", return_value="agentbox-codex:test"
+            ) as ensure:
+                with self.quiet_output():
+                    status = cli.cmd_codex_run(args)
+
+            self.assertEqual(status, 0)
+            ensure.assert_called_once()
+
+    def test_dirty_abort_happens_before_managed_image_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            (root / "file.txt").write_text("dirty\n")
+            args = self.args(
+                repo=root,
+                image=None,
+                dirty="abort",
+                dry_run=False,
+                git_user_name=None,
+                git_user_email=None,
+                prompt=[],
+                pull="later",
+                sign_imports=None,
+            )
+
+            with mock.patch("agentbox.cli.podman.ensure_managed_image") as ensure:
+                with self.assertRaisesRegex(RuntimeError, "working tree is dirty"):
+                    cli.cmd_codex_run(args)
+
+            ensure.assert_not_called()
+
+    def test_saved_run_dry_run_reports_default_image_creation_and_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            image = cli.podman.harness_image_name(
+                config, cli.podman.default_containerfile_digest(config.base_image)
+            )
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                cli.ensure_saved_run_image(config, image, dry_run=True)
+
+            text = output.getvalue()
+            self.assertIn("would create", text)
+            self.assertIn("podman image exists", text)
+            self.assertIn("podman build", text)
 
     def test_runs_import_uses_sign_imports_from_config(self):
         with tempfile.TemporaryDirectory() as tmp:

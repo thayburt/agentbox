@@ -18,6 +18,15 @@ uv run agentbox doctor
 uv run agentbox codex build
 ```
 
+`agentbox init` creates two local files independently and never overwrites either
+one when it already exists:
+
+- `agentbox.toml`
+- `.agentbox/codex.Containerfile`
+
+The Containerfile is the mutable local definition of the managed Codex harness
+image. Edit it when you need a custom base image or additional tools.
+
 Run tests with:
 
 ```bash
@@ -33,6 +42,27 @@ environment variable when set, otherwise `~/.codex`.
 ```bash
 uv run agentbox codex run
 ```
+
+By default, `agentbox` uses the current `.agentbox/codex.Containerfile` contents
+to select a managed image tag:
+
+```text
+agentbox-codex:<full-containerfile-sha256>
+```
+
+`agentbox codex build` skips the Podman build when that exact image already
+exists locally. `agentbox codex run` and `agentbox codex shell` automatically
+build the current managed image when it is missing.
+
+Pass `--image IMAGE` to bypass the managed Containerfile image entirely:
+
+```bash
+uv run agentbox codex run --image ubuntu:24.04
+uv run agentbox codex shell --image localhost/custom-codex:dev
+```
+
+The override is passed directly to Podman and recorded in run metadata as-is;
+`agentbox` does not check, pull, or build it first.
 
 If the checkout is dirty, the CLI prompts before copying dirty file contents
 into the isolated clone. In non-interactive use, choose explicitly:
@@ -137,3 +167,8 @@ If `.devcontainer/devcontainer.json` exists, `agentbox` supports this subset:
 
 High-impact unsupported fields such as `dockerComposeFile`, `service`, and
 `features` fail fast.
+
+Devcontainer `image` and `build` fields do not change the Codex harness base
+image. Workspace, environment, mounts, run arguments, and post commands remain
+supported. To change the harness base, edit `.agentbox/codex.Containerfile` or
+pass `--image IMAGE` for a specific run or shell.
