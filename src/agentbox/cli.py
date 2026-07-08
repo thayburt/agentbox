@@ -160,9 +160,7 @@ def cmd_codex_build(args: argparse.Namespace) -> int:
 
 def cmd_codex_images(args: argparse.Namespace) -> int:
     config, _ = context(args)
-    # Compare by tag: metadata stores the bare "<image_name>:<digest>" while
-    # podman may report the same image under a "localhost/" namespace.
-    referenced = {podman.image_tag(m.image) for m in runs.list_runs(config.run_store)}
+    referenced = referenced_image_tags(config)
     current = current_managed_image_or_none(config)
     current_tag = podman.image_tag(current) if current else None
     images = podman.list_managed_images(config)
@@ -183,7 +181,7 @@ def cmd_codex_images(args: argparse.Namespace) -> int:
 
 def cmd_codex_prune(args: argparse.Namespace) -> int:
     config, _ = context(args)
-    keep = {podman.image_tag(m.image) for m in runs.list_runs(config.run_store)}
+    keep = referenced_image_tags(config)
     current = current_managed_image_or_none(config)
     if current:
         keep.add(podman.image_tag(current))
@@ -200,6 +198,17 @@ def cmd_codex_prune(args: argparse.Namespace) -> int:
     if removed == 0:
         print("no unreferenced managed images to prune")
     return 0
+
+
+def referenced_image_tags(config: Config) -> set[str]:
+    """Digest tags of images referenced by saved runs.
+
+    Shared by ``cmd_codex_images`` and ``cmd_codex_prune`` so the two commands
+    cannot disagree on which images are still referenced. Compared by tag:
+    metadata stores the bare "<image_name>:<digest>" while podman may report the
+    same image under a "localhost/" namespace.
+    """
+    return {podman.image_tag(m.image) for m in runs.list_runs(config.run_store)}
 
 
 def current_managed_image_or_none(config: Config) -> str | None:
