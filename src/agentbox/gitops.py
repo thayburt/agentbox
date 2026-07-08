@@ -93,10 +93,15 @@ def copy_dirty_paths(source: Path, dest: Path) -> None:
         path = entry[3:]
         i += 1
         if "R" in status or "C" in status:
+            # Rename/copy entries are emitted as "<status> <new>\0<old>\0".
+            # `path` (entry[3:]) is the new path; the next record is the old path.
             if i >= len(records):
                 break
-            path = os.fsdecode(records[i])
+            old_path = os.fsdecode(records[i])
             i += 1
+            if "R" in status:
+                # The old path no longer exists in source; mirror its removal.
+                _copy_or_remove(source / old_path, dest / old_path)
         _copy_or_remove(source / path, dest / path)
 
 

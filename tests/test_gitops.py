@@ -69,6 +69,44 @@ class GitOpsTests(unittest.TestCase):
             self.assertTrue(gitops.branch_exists(root, "agentbox/test"))
             self.assertEqual(gitops.rev_parse(root, "agentbox/test"), run_head)
 
+    def test_clone_include_dirty_handles_staged_rename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            self.git(root, "init")
+            self.configure_user(root)
+            (root / "old.txt").write_text("hello\n")
+            self.git(root, "add", "old.txt")
+            self.git(root, "commit", "-m", "base")
+
+            self.git(root, "mv", "old.txt", "new.txt")
+
+            run_repo = Path(tmp) / "run" / "repo"
+            gitops.clone_repo(root, run_repo, include_dirty=True)
+
+            self.assertFalse((run_repo / "old.txt").exists())
+            self.assertTrue((run_repo / "new.txt").exists())
+            self.assertEqual((run_repo / "new.txt").read_text(), "hello\n")
+
+    def test_clone_include_dirty_handles_modified_rename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            self.git(root, "init")
+            self.configure_user(root)
+            (root / "old.txt").write_text("hello\n")
+            self.git(root, "add", "old.txt")
+            self.git(root, "commit", "-m", "base")
+
+            self.git(root, "mv", "old.txt", "new.txt")
+            (root / "new.txt").write_text("hello\nworld\n")
+
+            run_repo = Path(tmp) / "run" / "repo"
+            gitops.clone_repo(root, run_repo, include_dirty=True)
+
+            self.assertFalse((run_repo / "old.txt").exists())
+            self.assertEqual((run_repo / "new.txt").read_text(), "hello\nworld\n")
+
     def test_import_branch_signed_replays_with_signed_commits(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
