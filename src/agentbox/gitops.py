@@ -163,17 +163,17 @@ def import_branch_signed(
     branch: str,
     force: bool,
 ) -> str:
-    fetch_head(original_repo, run_repo)
+    fetched_head = fetch_head(original_repo, run_repo)
     if branch_exists(original_repo, branch) and not force:
         raise RuntimeError(f"branch {branch} already exists")
 
-    merge_commits = _rev_list(original_repo, [f"{base_head}..FETCH_HEAD", "--merges"])
+    merge_commits = _rev_list(original_repo, [f"{base_head}..{fetched_head}", "--merges"])
     if merge_commits:
         raise RuntimeError(
             "signed import does not support merge commits; rerun with --no-sign-imports"
         )
 
-    commits = _rev_list(original_repo, [f"{base_head}..FETCH_HEAD", "--reverse"])
+    commits = _rev_list(original_repo, [f"{base_head}..{fetched_head}", "--reverse"])
     if not commits:
         return base_head
 

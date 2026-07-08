@@ -406,7 +406,7 @@ def complete_run(
     branch = f"agentbox/{metadata.id}"
     target_head = gitops.fetch_head(config.repo_root, run_repo)
     state = gitops.repo_state(config.repo_root)
-    run_only_count = gitops.count_commits_between(config.repo_root, "HEAD", "FETCH_HEAD")
+    run_only_count = gitops.count_commits_between(config.repo_root, "HEAD", target_head)
     has_uncommitted = gitops.has_uncommitted_changes(run_repo)
 
     if run_only_count == 0:
@@ -420,14 +420,14 @@ def complete_run(
 
     print(f"Run {metadata.id} finished with {run_only_count} commit(s).")
     print()
-    print_commit_preview(config.repo_root, state.branch)
+    print_commit_preview(config.repo_root, state.branch, target_head)
     if has_uncommitted:
         print()
         print(
             f"run {metadata.id} also has uncommitted changes; use `agentbox runs enter {metadata.id}`"
         )
 
-    fast_forward = gitops.check_fast_forward(config.repo_root, metadata.base_branch, "FETCH_HEAD")
+    fast_forward = gitops.check_fast_forward(config.repo_root, metadata.base_branch, target_head)
     action = resolve_pull_mode(pull_mode, config, metadata, branch, fast_forward, target_head)
     sign_imports = resolve_sign_imports(config, sign_imports_override)
     if action == "later":
@@ -463,7 +463,7 @@ def complete_run(
         if not fast_forward.ok:
             print(f"fast-forward unavailable: {fast_forward.reason}", file=sys.stderr)
             return 2
-        gitops.fast_forward(config.repo_root, "FETCH_HEAD")
+        gitops.fast_forward(config.repo_root, target_head)
         print(f"fast-forwarded {fast_forward.current_branch} to {target_head[:7]}")
         return 0
     raise RuntimeError(f"unknown pull mode: {action}")
@@ -481,21 +481,21 @@ def resolve_sign_imports(config: Config, override: bool | None) -> bool:
     return config.sign_imports
 
 
-def print_commit_preview(repo: Path, branch: str) -> None:
-    run_only_count = gitops.count_commits_between(repo, "HEAD", "FETCH_HEAD")
+def print_commit_preview(repo: Path, branch: str, target: str) -> None:
+    run_only_count = gitops.count_commits_between(repo, "HEAD", target)
     print(f"Commits in run not on {branch}:")
-    for line in gitops.one_line_log(repo, "HEAD", "FETCH_HEAD", limit=LOG_PREVIEW_LIMIT):
+    for line in gitops.one_line_log(repo, "HEAD", target, limit=LOG_PREVIEW_LIMIT):
         print(f"  {line}")
     if run_only_count > LOG_PREVIEW_LIMIT:
         remaining = run_only_count - LOG_PREVIEW_LIMIT
         print(f"  ... {remaining} more commit(s)")
 
-    host_only_count = gitops.count_commits_between(repo, "FETCH_HEAD", "HEAD")
+    host_only_count = gitops.count_commits_between(repo, target, "HEAD")
     if host_only_count == 0:
         return
     print()
     print(f"Commits on {branch} not in run:")
-    for line in gitops.one_line_log(repo, "FETCH_HEAD", "HEAD", limit=LOG_PREVIEW_LIMIT):
+    for line in gitops.one_line_log(repo, target, "HEAD", limit=LOG_PREVIEW_LIMIT):
         print(f"  {line}")
     if host_only_count > LOG_PREVIEW_LIMIT:
         remaining = host_only_count - LOG_PREVIEW_LIMIT
