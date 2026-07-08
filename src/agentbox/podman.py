@@ -7,6 +7,7 @@ import subprocess
 
 from .config import Config
 from .devcontainer import Devcontainer
+from .drivers import default_codex_containerfile, get_driver
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -37,12 +38,14 @@ def podman_rootless() -> bool | None:
     return None
 
 
-def harness_containerfile_path(config: Config, harness: str = "codex") -> Path:
-    return config.repo_root / ".agentbox" / f"{harness}.Containerfile"
+def harness_containerfile_path(config: Config, driver_id: str = "codex") -> Path:
+    driver = get_driver(driver_id)
+    return config.repo_root / ".agentbox" / driver.containerfile_name
 
 
-def harness_image_name(config: Config, digest: str) -> str:
-    return f"{config.image_name}:{digest}"
+def harness_image_name(config: Config, digest: str, driver_id: str = "codex") -> str:
+    settings = config.driver_settings(driver_id)
+    return f"{settings.image_name}:{digest}"
 
 
 def build_image(
@@ -51,14 +54,15 @@ def build_image(
     dry_run: bool = False,
     *,
     force: bool = False,
+    driver_id: str = "codex",
 ) -> list[str]:
     del devcontainer
-    image = current_managed_image(config, dry_run=dry_run)
-    containerfile = harness_containerfile_path(config)
+    image = current_managed_image(config, dry_run=dry_run, driver_id=driver_id)
+    containerfile = harness_containerfile_path(config, driver_id)
     # A forced rebuild also refreshes the base image, since the content-addressed
     # tag cannot detect upstream base-image or install-script changes on its own.
     return build_tagged_image(
-        config, containerfile, image, dry_run=dry_run, force=force, pull_newer=force
+        config, containerfile, image, dry_run=dry_run, force=force, pull_newer=force, driver_id=driver_id
     )
 
 
@@ -70,10 +74,11 @@ def build_tagged_image(
     dry_run: bool = False,
     force: bool = False,
     pull_newer: bool = False,
+    driver_id: str = "codex",
 ) -> list[str]:
     context = config.repo_root / ".agentbox"
     exists_cmd = ["podman", "image", "exists", image]
-    cmd = managed_build_command(config, image, containerfile, pull_newer=pull_newer)
+    cmd = managed_build_command(config, image, containerfile, pull_newer=pull_newer, driver_id=driver_id)
     if dry_run:
         print(shlex.join(exists_cmd))
         print(shlex.join(cmd))
@@ -114,30 +119,35 @@ def image_exists(image: str) -> bool:
     return result.returncode == 0
 
 
-def current_managed_image(config: Config, *, dry_run: bool = False) -> str:
-    path = ensure_harness_containerfile(config, dry_run=dry_run)
+def current_managed_image(config: Config, *, dry_run: bool = False, driver_id: str = "codex") -> str:
+    path = ensure_harness_containerfile(config, driver_id=driver_id, dry_run=dry_run)
     if dry_run and not path.exists():
-        digest = default_containerfile_digest(config.base_image)
+        digest = default_containerfile_digest(config, driver_id)
     else:
         digest = containerfile_digest(path)
-    return harness_image_name(config, digest)
+    return harness_image_name(config, digest, driver_id)
 
 
-def ensure_managed_image(config: Config, *, dry_run: bool = False) -> str:
-    image = current_managed_image(config, dry_run=dry_run)
+def ensure_managed_image(config: Config, *, dry_run: bool = False, driver_id: str = "codex") -> str:
+    image = current_managed_image(config, dry_run=dry_run, driver_id=driver_id)
     if dry_run:
         print(shlex.join(["podman", "image", "exists", image]))
-        print(shlex.join(managed_build_command(config, image)))
+        print(shlex.join(managed_build_command(config, image, driver_id=driver_id)))
     elif not image_exists(image):
-        build_image(config, None)
+        build_image(config, None, driver_id=driver_id)
     return image
 
 
 def managed_build_command(
-    config: Config, image: str, containerfile: Path | None = None, *, pull_newer: bool = False
+    config: Config,
+    image: str,
+    containerfile: Path | None = None,
+    *,
+    pull_newer: bool = False,
+    driver_id: str = "codex",
 ) -> list[str]:
     if containerfile is None:
-        containerfile = harness_containerfile_path(config)
+        containerfile = harness_containerfile_path(config, driver_id)
     context = config.repo_root / ".agentbox"
     cmd = ["podman", "build", "-t", image, "-f", str(containerfile)]
     if pull_newer:
@@ -146,7 +156,7 @@ def managed_build_command(
     return cmd
 
 
-def list_managed_images(config: Config) -> list[str]:
+def list_managed_images(config: Config, driver_id: str = "codex") -> list[str]:
     result = run(["podman", "images", "--format", "{{.Repository}}:{{.Tag}}"], check=False)
     if result.returncode != 0:
         return []
@@ -155,10 +165,8 @@ def list_managed_images(config: Config) -> list[str]:
         line = raw.strip()
         if not line or ":" not in line:
             continue
-        repo, _, _tag = line.rpartition(":")
-        # Locally-built images are reported under a "localhost/" namespace, while
-        # the tag agentbox stores is the bare "<image_name>:<digest>".
-        if repo == config.image_name or repo.endswith(f"/{config.image_name}"):
+        repo, _, _tag = normalized_image_ref(line).rpartition(":")
+        if repo == config.driver_settings(driver_id).image_name:
             images.add(line)
     return sorted(images)
 
@@ -167,21 +175,28 @@ def image_tag(image: str) -> str:
     return image.rsplit(":", 1)[-1]
 
 
+def normalized_image_ref(image: str) -> str:
+    if image.startswith("localhost/"):
+        return image.removeprefix("localhost/")
+    return image
+
+
 def remove_image(image: str) -> None:
     subprocess.run(["podman", "rmi", image], check=True)
 
 
 def ensure_harness_containerfile(
-    config: Config, harness: str = "codex", dry_run: bool = False
+    config: Config, driver_id: str = "codex", dry_run: bool = False
 ) -> Path:
-    path = harness_containerfile_path(config, harness)
+    driver = get_driver(driver_id)
+    path = harness_containerfile_path(config, driver.id)
     if path.exists():
         return path
     if dry_run:
         print(f"would create {path}")
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(default_codex_containerfile(config.base_image))
+    path.write_text(driver.default_containerfile(config.driver_settings(driver.id)))
     return path
 
 
@@ -189,8 +204,11 @@ def containerfile_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def default_containerfile_digest(base_image: str) -> str:
-    return hashlib.sha256(default_codex_containerfile(base_image).encode()).hexdigest()
+def default_containerfile_digest(config: Config, driver_id: str = "codex") -> str:
+    driver = get_driver(driver_id)
+    return hashlib.sha256(
+        driver.default_containerfile(config.driver_settings(driver.id)).encode()
+    ).hexdigest()
 
 
 def render_run_command(
@@ -200,14 +218,16 @@ def render_run_command(
     image: str,
     run_repo: Path,
     command: str,
+    driver_id: str = "codex",
+    host_env: dict[str, str] | None = None,
 ) -> list[str]:
+    driver = get_driver(driver_id)
+    settings = config.driver_settings(driver.id)
+    host_env = host_env or {}
     workspace = (
         devcontainer.workspace_folder if devcontainer and devcontainer.workspace_folder else None
     )
-    workspace = workspace or config.workspace_folder
-    # codex_home is a shared host directory: relabel with :z (shared) rather
-    # than :Z (private) so podman does not strip the host's own access to it.
-    codex_home_suffix = volume_suffix(config.selinux, shared=True)
+    workspace = workspace or settings.workspace_folder
     # The run clone is ephemeral and container-private, so :Z is appropriate.
     run_repo_suffix = volume_suffix(config.selinux, shared=False)
 
@@ -219,13 +239,14 @@ def render_run_command(
         "--userns=keep-id",
         "--workdir",
         workspace,
-        "-e",
-        "CODEX_HOME=/codex-home",
-        "-v",
-        f"{config.codex_home.resolve()}:/codex-home{codex_home_suffix}",
         "-v",
         f"{run_repo.resolve()}:{workspace}{run_repo_suffix}",
     ]
+    for key, value in driver.container_env(settings, host_env).items():
+        args.extend(["-e", f"{key}={value}"])
+    for mount in driver.state_mounts(settings, host_env):
+        suffix = volume_suffix(config.selinux, shared=mount.shared)
+        args.extend(["-v", f"{mount.source.expanduser().resolve()}:{mount.target}{suffix}"])
     if devcontainer:
         for key, value in devcontainer.env.items():
             args.extend(["-e", f"{key}={value}"])
@@ -236,6 +257,20 @@ def render_run_command(
     return args
 
 
+def ensure_state_mounts(config: Config, driver_id: str, host_env: dict[str, str]) -> None:
+    driver = get_driver(driver_id)
+    settings = config.driver_settings(driver.id)
+    for mount in driver.state_mounts(settings, host_env):
+        source = mount.source.expanduser()
+        if source.exists():
+            continue
+        if not mount.required:
+            continue
+        if mount.target == "/kilo-host/KILO_CONFIG":
+            raise RuntimeError(f"KILO_CONFIG points to missing file: {source}")
+        source.mkdir(parents=True, exist_ok=True)
+
+
 def volume_suffix(mode: str, *, shared: bool = False) -> str:
     if mode == "disabled":
         return ""
@@ -244,32 +279,3 @@ def volume_suffix(mode: str, *, shared: bool = False) -> str:
     if mode == "auto" and Path("/sys/fs/selinux").exists():
         return ":z" if shared else ":Z"
     return ""
-
-
-def default_codex_containerfile(base_image: str) -> str:
-    return f"""FROM {base_image}
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV CODEX_NON_INTERACTIVE=1
-
-RUN apt-get update \\
-    && apt-get install -y --no-install-recommends \\
-        bash \\
-        ca-certificates \\
-        curl \\
-        git \\
-        jq \\
-        less \\
-        openssh-client \\
-        python3 \\
-        ripgrep \\
-        sudo \\
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /opt/codex-install \\
-    && curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_HOME=/opt/codex-install CODEX_NON_INTERACTIVE=1 CODEX_INSTALL_DIR=/usr/local/bin sh
-
-ENV CODEX_HOME=/codex-home
-
-WORKDIR /workspace
-"""

@@ -92,6 +92,20 @@ class PodmanTests(unittest.TestCase):
             self.assertIn("FROM ubuntu:24.04", original)
             self.assertEqual(path.read_text(), "custom\n")
 
+    def test_ensure_kilo_containerfile_writes_default_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            path = podman.ensure_harness_containerfile(config, driver_id="kilo")
+            original = path.read_text()
+
+            path.write_text("custom\n")
+            podman.ensure_harness_containerfile(config, driver_id="kilo")
+
+            self.assertEqual(path.name, "kilo.Containerfile")
+            self.assertIn("npm install -g @kilocode/cli", original)
+            self.assertIn("kilo --version", original)
+            self.assertEqual(path.read_text(), "custom\n")
+
     def test_content_changes_produce_different_managed_image_tags(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
@@ -162,6 +176,80 @@ class PodmanTests(unittest.TestCase):
                 images = podman.list_managed_images(config)
 
             self.assertEqual(images, ["agentbox-codex:aaa", "localhost/agentbox-codex:bbb"])
+
+    def test_list_managed_images_filters_by_driver_image_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            completed = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=(
+                    "agentbox-codex:same\n"
+                    "localhost/agentbox-kilo:same\n"
+                    "agentbox-kilo:other\n"
+                ),
+                stderr="",
+            )
+            with mock.patch("agentbox.podman.run", return_value=completed):
+                images = podman.list_managed_images(config, driver_id="kilo")
+
+            self.assertEqual(images, ["agentbox-kilo:other", "localhost/agentbox-kilo:same"])
+
+    def test_render_run_command_sets_kilo_env_mounts_and_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+            config_home = root / "xdg-config"
+            data_home = root / "xdg-data"
+            state_home = root / "xdg-state"
+            cache_home = root / "xdg-cache"
+            host_env = {
+                "XDG_CONFIG_HOME": str(config_home),
+                "XDG_DATA_HOME": str(data_home),
+                "XDG_STATE_HOME": str(state_home),
+                "XDG_CACHE_HOME": str(cache_home),
+                "KILO_CONFIG_CONTENT": '{"provider":"test","sandbox":true}',
+            }
+
+            cmd = render_run_command(
+                config=self.config(root),
+                devcontainer=None,
+                image="agentbox-kilo:test",
+                run_repo=run_repo,
+                command="exec kilo run --dir /workspace --interactive --dangerously-skip-permissions status",
+                driver_id="kilo",
+                host_env=host_env,
+            )
+
+            self.assertIn("HOME=/kilo-home", cmd)
+            self.assertIn(f"{config_home / 'kilo'}:/kilo-home/.config/kilo", cmd)
+            self.assertIn(f"{data_home / 'kilo'}:/kilo-home/.local/share/kilo", cmd)
+            self.assertIn(f"{state_home / 'kilo'}:/kilo-home/.local/state/kilo", cmd)
+            self.assertIn(f"{cache_home / 'kilo'}:/kilo-home/.cache/kilo", cmd)
+            config_env = next(item for item in cmd if item.startswith("KILO_CONFIG_CONTENT="))
+            self.assertIn('"provider":"test"', config_env)
+            self.assertIn('"sandbox":false', config_env)
+            self.assertIn('"sandbox_restrict_network":false', config_env)
+            self.assertIn('"permission":"allow"', config_env)
+            self.assertEqual(cmd[-1], "exec kilo run --dir /workspace --interactive --dangerously-skip-permissions status")
+
+    def test_render_run_command_rejects_invalid_kilo_config_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+
+            with self.assertRaisesRegex(RuntimeError, "KILO_CONFIG_CONTENT is invalid JSON"):
+                render_run_command(
+                    config=self.config(root),
+                    devcontainer=None,
+                    image="agentbox-kilo:test",
+                    run_repo=run_repo,
+                    command="exec bash",
+                    driver_id="kilo",
+                    host_env={"KILO_CONFIG_CONTENT": "not-json"},
+                )
 
     def config(self, root: Path) -> Config:
         return Config(

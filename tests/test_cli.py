@@ -36,6 +36,15 @@ class CliRunPreparationTests(unittest.TestCase):
         self.assertEqual(run.image, "ubuntu:24.04")
         self.assertEqual(shell.image, "localhost/custom:dev")
 
+    def test_parser_accepts_kilo_and_kilocode_alias(self):
+        parser = cli.build_parser()
+
+        kilo = parser.parse_args(["kilo", "run", "status"])
+        alias = parser.parse_args(["kilocode", "shell", "--dry-run"])
+
+        self.assertEqual(kilo.driver_id, "kilo")
+        self.assertEqual(alias.driver_id, "kilo")
+
     def test_init_creates_config_and_containerfile_without_overwriting(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
@@ -45,9 +54,11 @@ class CliRunPreparationTests(unittest.TestCase):
                 status = cli.cmd_init(args)
 
             containerfile = root / ".agentbox" / "codex.Containerfile"
+            kilo_containerfile = root / ".agentbox" / "kilo.Containerfile"
             self.assertEqual(status, 0)
             self.assertTrue((root / "agentbox.toml").exists())
             self.assertIn("FROM ubuntu:24.04", containerfile.read_text())
+            self.assertIn("npm install -g @kilocode/cli", kilo_containerfile.read_text())
 
             containerfile.write_text("custom\n")
             with self.quiet_output():
@@ -116,7 +127,19 @@ user_email = "config@example.com"
             _, metadata = cli.prepare_run(config, None, "ignore", "custom/image:tag")
 
             self.assertEqual(metadata.image, "custom/image:tag")
+            self.assertEqual(metadata.driver, "codex")
             self.assertIsNone(metadata.containerfile)
+
+    def test_prepare_run_stores_selected_driver(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+
+            _, metadata = cli.prepare_run(
+                config, None, "ignore", "agentbox-kilo:test", driver_id="kilo"
+            )
+
+            self.assertEqual(metadata.driver, "kilo")
 
     def test_prepare_run_snapshots_managed_containerfile(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,6 +206,29 @@ user_email = "config@example.com"
             self.assertEqual(status, 0)
             ensure.assert_called_once()
 
+    def test_kilo_run_image_override_bypasses_managed_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            args = self.args(
+                repo=root,
+                image="ubuntu:24.04",
+                dirty="ignore",
+                dry_run=True,
+                git_user_name=None,
+                git_user_email=None,
+                prompt=["status"],
+                pull="later",
+                sign_imports=None,
+                driver_id="kilo",
+            )
+
+            with mock.patch("agentbox.cli.podman.ensure_managed_image") as ensure:
+                with self.quiet_output():
+                    status = cli.cmd_harness_run(args)
+
+            self.assertEqual(status, 0)
+            ensure.assert_not_called()
+
     def test_dirty_abort_happens_before_managed_image_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
@@ -231,6 +277,52 @@ user_email = "config@example.com"
             self.assertIn("podman build", text)
             self.assertIn(str(snapshot), text)
 
+    def test_referenced_images_use_driver_full_refs_not_tags_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            codex_dir = config.run_store / "codex-run"
+            kilo_dir = config.run_store / "kilo-run"
+            custom_dir = config.run_store / "custom-run"
+            runs.write_metadata(
+                codex_dir,
+                runs.create_metadata(
+                    "codex-run",
+                    root,
+                    codex_dir / "repo",
+                    "main",
+                    "0" * 40,
+                    "agentbox-codex:same",
+                    driver="codex",
+                ),
+            )
+            runs.write_metadata(
+                kilo_dir,
+                runs.create_metadata(
+                    "kilo-run",
+                    root,
+                    kilo_dir / "repo",
+                    "main",
+                    "0" * 40,
+                    "agentbox-kilo:same",
+                    driver="kilo",
+                ),
+            )
+            runs.write_metadata(
+                custom_dir,
+                runs.create_metadata(
+                    "custom-run",
+                    root,
+                    custom_dir / "repo",
+                    "main",
+                    "0" * 40,
+                    "custom/image:same",
+                    driver="kilo",
+                ),
+            )
+
+            self.assertEqual(cli.referenced_image_refs(config, "kilo"), {"agentbox-kilo:same"})
+
     def test_saved_run_without_snapshot_errors_when_image_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
@@ -247,6 +339,28 @@ user_email = "config@example.com"
             with mock.patch("agentbox.cli.podman.image_exists", return_value=False):
                 with self.assertRaisesRegex(RuntimeError, "no Containerfile snapshot"):
                     cli.ensure_saved_run_image(config, metadata, dry_run=False)
+
+    def test_driver_specific_shell_rejects_mismatched_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            run_dir = config.run_store / "codex-run"
+            run_dir.mkdir(parents=True)
+            metadata = runs.create_metadata(
+                "codex-run",
+                root,
+                run_dir / "repo",
+                "main",
+                "0" * 40,
+                "agentbox-codex:test",
+                driver="codex",
+            )
+            runs.write_metadata(run_dir, metadata)
+
+            args = self.args(repo=root, run_id="codex-run", dry_run=True, driver_id="kilo")
+
+            with self.assertRaisesRegex(RuntimeError, "uses driver codex"):
+                cli.cmd_harness_shell(args)
 
     def test_runs_prune_reports_unknown_and_rejects_escaping_ids(self):
         with tempfile.TemporaryDirectory() as tmp:

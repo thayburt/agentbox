@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import tomllib
+
+from .drivers import DriverSettings
 
 
 CONFIG_FILE = "agentbox.toml"
@@ -22,6 +24,25 @@ class Config:
     git_user_name: str | None
     git_user_email: str | None
     sign_imports: bool
+    harnesses: dict[str, DriverSettings] = field(default_factory=dict)
+
+    def driver_settings(self, driver_id: str) -> DriverSettings:
+        if driver_id in self.harnesses:
+            return self.harnesses[driver_id]
+        if driver_id == "codex":
+            return DriverSettings(
+                image_name=self.image_name,
+                base_image=self.base_image,
+                workspace_folder=self.workspace_folder,
+                options={"codex_home": str(self.codex_home)},
+            )
+        if driver_id == "kilo":
+            return DriverSettings(
+                image_name="agentbox-kilo",
+                base_image="ubuntu:24.04",
+                workspace_folder="/workspace",
+            )
+        raise RuntimeError(f"unknown driver: {driver_id}")
 
 
 def default_toml() -> str:
@@ -40,6 +61,11 @@ image_name = "agentbox-codex"
 base_image = "ubuntu:24.04"
 workspace_folder = "/workspace"
 codex_home = "{codex_home}"
+
+[kilo]
+image_name = "agentbox-kilo"
+base_image = "ubuntu:24.04"
+workspace_folder = "/workspace"
 
 [git]
 # user_name = "Your Name"
@@ -67,6 +93,17 @@ def load_config(repo_root: Path) -> Config:
     run_store_raw = _get(data, "runtime.run_store", ".agentbox/runs")
     devcontainer_raw = _get(data, "devcontainer.path", ".devcontainer/devcontainer.json")
     codex_home_raw = _get(data, "codex.codex_home", os.environ.get("CODEX_HOME", "~/.codex"))
+    codex_settings = DriverSettings(
+        image_name=str(_get(data, "codex.image_name", "agentbox-codex")),
+        base_image=str(_get(data, "codex.base_image", "ubuntu:24.04")),
+        workspace_folder=str(_get(data, "codex.workspace_folder", "/workspace")),
+        options={"codex_home": str(Path(str(codex_home_raw)).expanduser())},
+    )
+    kilo_settings = DriverSettings(
+        image_name=str(_get(data, "kilo.image_name", "agentbox-kilo")),
+        base_image=str(_get(data, "kilo.base_image", "ubuntu:24.04")),
+        workspace_folder=str(_get(data, "kilo.workspace_folder", "/workspace")),
+    )
 
     run_store = _resolve_repo_path(repo_root, run_store_raw)
     devcontainer = _resolve_repo_path(repo_root, devcontainer_raw) if devcontainer_raw else None
@@ -83,6 +120,7 @@ def load_config(repo_root: Path) -> Config:
         git_user_name=_optional_str(_get(data, "git.user_name")),
         git_user_email=_optional_str(_get(data, "git.user_email")),
         sign_imports=bool(_get(data, "git.sign_imports", False)),
+        harnesses={"codex": codex_settings, "kilo": kilo_settings},
     )
 
 

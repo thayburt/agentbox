@@ -19,6 +19,7 @@ class RunMetadata:
     base_branch: str
     base_head: str
     image: str
+    driver: str = "codex"
     containerfile: str | None = None
 
 
@@ -34,6 +35,7 @@ def create_metadata(
     base_branch: str,
     base_head: str,
     image: str,
+    driver: str = "codex",
     containerfile: str | None = None,
 ) -> RunMetadata:
     return RunMetadata(
@@ -44,6 +46,7 @@ def create_metadata(
         base_branch=base_branch,
         base_head=base_head,
         image=image,
+        driver=driver,
         containerfile=containerfile,
     )
 
@@ -55,6 +58,7 @@ def write_metadata(run_dir: Path, metadata: RunMetadata) -> None:
 
 def read_metadata(run_dir: Path) -> RunMetadata:
     data = json.loads((run_dir / METADATA_FILE).read_text())
+    data.setdefault("driver", "codex")
     return RunMetadata(**data)
 
 

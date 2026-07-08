@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import shlex
 import shutil
@@ -12,6 +13,7 @@ from .devcontainer import Devcontainer, load_devcontainer, shell_join
 from . import gitops
 from . import podman
 from . import runs
+from .drivers import all_drivers, canonical_driver_id, get_driver
 
 
 PULL_CHOICES = ("prompt", "branch", "ff-only", "later")
@@ -48,51 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="Check host prerequisites")
     doctor.set_defaults(func=cmd_doctor)
 
-    codex = sub.add_parser("codex", help="Codex container commands")
-    codex_sub = codex.add_subparsers(required=True)
-    codex_build = codex_sub.add_parser("build", help="Build the Codex harness image")
-    codex_build.add_argument("--dry-run", action="store_true")
-    codex_build.add_argument(
-        "--rebuild",
-        action="store_true",
-        help="Rebuild even if the image exists, refreshing the base image",
-    )
-    codex_build.set_defaults(func=cmd_codex_build)
-
-    codex_images = codex_sub.add_parser("images", help="List managed harness images")
-    codex_images.set_defaults(func=cmd_codex_images)
-
-    codex_prune = codex_sub.add_parser(
-        "prune", help="Remove managed harness images not referenced by any run"
-    )
-    codex_prune.add_argument("--dry-run", action="store_true")
-    codex_prune.set_defaults(func=cmd_codex_prune)
-
-    codex_run = codex_sub.add_parser("run", help="Run interactive Codex in an isolated clone")
-    codex_run.add_argument("prompt", nargs=argparse.REMAINDER)
-    codex_run.add_argument("--dry-run", action="store_true")
-    codex_run.add_argument(
-        "--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt"
-    )
-    codex_run.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
-    codex_run.add_argument("--image", default=None)
-    codex_run.add_argument("--git-user-name", default=None)
-    codex_run.add_argument("--git-user-email", default=None)
-    add_sign_import_args(codex_run)
-    codex_run.set_defaults(func=cmd_codex_run)
-
-    codex_shell = codex_sub.add_parser("shell", help="Open a shell in an isolated run")
-    codex_shell.add_argument("--run", dest="run_id")
-    codex_shell.add_argument("--dry-run", action="store_true")
-    codex_shell.add_argument(
-        "--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt"
-    )
-    codex_shell.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
-    codex_shell.add_argument("--image", default=None)
-    codex_shell.add_argument("--git-user-name", default=None)
-    codex_shell.add_argument("--git-user-email", default=None)
-    add_sign_import_args(codex_shell)
-    codex_shell.set_defaults(func=cmd_codex_shell)
+    for driver in all_drivers():
+        register_driver_commands(sub, driver.id, driver.display_name)
+        for alias in driver.aliases:
+            register_driver_commands(sub, alias, driver.display_name)
 
     runs_parser = sub.add_parser("runs", help="Manage saved run directories")
     runs_sub = runs_parser.add_subparsers(required=True)
@@ -115,6 +76,54 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def register_driver_commands(
+    subparsers: argparse._SubParsersAction, command_name: str, display_name: str
+) -> None:
+    driver_id = canonical_driver_id(command_name)
+    parser = subparsers.add_parser(command_name, help=f"{display_name} container commands")
+    harness_sub = parser.add_subparsers(required=True)
+
+    build = harness_sub.add_parser("build", help=f"Build the {display_name} harness image")
+    build.add_argument("--dry-run", action="store_true")
+    build.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="Rebuild even if the image exists, refreshing the base image",
+    )
+    build.set_defaults(func=cmd_harness_build, driver_id=driver_id)
+
+    images = harness_sub.add_parser("images", help="List managed harness images")
+    images.set_defaults(func=cmd_harness_images, driver_id=driver_id)
+
+    prune = harness_sub.add_parser(
+        "prune", help="Remove managed harness images not referenced by any run"
+    )
+    prune.add_argument("--dry-run", action="store_true")
+    prune.set_defaults(func=cmd_harness_prune, driver_id=driver_id)
+
+    run = harness_sub.add_parser("run", help=f"Run interactive {display_name} in an isolated clone")
+    run.add_argument("prompt", nargs=argparse.REMAINDER)
+    run.add_argument("--dry-run", action="store_true")
+    run.add_argument("--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt")
+    run.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
+    run.add_argument("--image", default=None)
+    run.add_argument("--git-user-name", default=None)
+    run.add_argument("--git-user-email", default=None)
+    add_sign_import_args(run)
+    run.set_defaults(func=cmd_harness_run, driver_id=driver_id)
+
+    shell = harness_sub.add_parser("shell", help="Open a shell in an isolated run")
+    shell.add_argument("--run", dest="run_id")
+    shell.add_argument("--dry-run", action="store_true")
+    shell.add_argument("--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt")
+    shell.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
+    shell.add_argument("--image", default=None)
+    shell.add_argument("--git-user-name", default=None)
+    shell.add_argument("--git-user-email", default=None)
+    add_sign_import_args(shell)
+    shell.set_defaults(func=cmd_harness_shell, driver_id=driver_id)
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     root = repo_root(args)
     path = root / CONFIG_FILE
@@ -124,12 +133,13 @@ def cmd_init(args: argparse.Namespace) -> int:
         path.write_text(default_toml())
         print(f"created {path}")
     config = load_config(root)
-    containerfile = podman.harness_containerfile_path(config)
-    if containerfile.exists():
-        print(f"{containerfile} already exists")
-    else:
-        podman.ensure_harness_containerfile(config)
-        print(f"created {containerfile}")
+    for driver in all_drivers():
+        containerfile = podman.harness_containerfile_path(config, driver.id)
+        if containerfile.exists():
+            print(f"{containerfile} already exists")
+        else:
+            podman.ensure_harness_containerfile(config, driver_id=driver.id)
+            print(f"created {containerfile}")
     return 0
 
 
@@ -142,9 +152,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         ("repo", str(config.repo_root), True),
         ("podman", version or "not found", bool(version)),
         ("rootless", str(rootless), rootless is True),
-        ("codex_home", str(config.codex_home), config.codex_home.exists()),
         ("devcontainer", str(devcontainer.path) if devcontainer else "none", True),
     ]
+    for driver in all_drivers():
+        checks.extend(driver.doctor_checks(config.driver_settings(driver.id), dict(os.environ)))
     for name, value, passed in checks:
         ok = ok and passed
         mark = "ok" if passed else "fail"
@@ -152,42 +163,47 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
-def cmd_codex_build(args: argparse.Namespace) -> int:
+def cmd_harness_build(args: argparse.Namespace) -> int:
     config, devcontainer = context(args)
-    podman.build_image(config, devcontainer, dry_run=args.dry_run, force=args.rebuild)
+    driver_id = selected_driver_id(args)
+    podman.build_image(
+        config, devcontainer, dry_run=args.dry_run, force=args.rebuild, driver_id=driver_id
+    )
     return 0
 
 
-def cmd_codex_images(args: argparse.Namespace) -> int:
+def cmd_harness_images(args: argparse.Namespace) -> int:
     config, _ = context(args)
-    referenced = referenced_image_tags(config)
-    current = current_managed_image_or_none(config)
-    current_tag = podman.image_tag(current) if current else None
-    images = podman.list_managed_images(config)
+    driver_id = selected_driver_id(args)
+    referenced = referenced_image_refs(config, driver_id)
+    current = current_managed_image_or_none(config, driver_id)
+    current_ref = podman.normalized_image_ref(current) if current else None
+    images = podman.list_managed_images(config, driver_id)
     if not images:
         print("no managed images")
         return 0
     for image in images:
-        tag = podman.image_tag(image)
+        image_ref = podman.normalized_image_ref(image)
         labels = []
-        if tag == current_tag:
+        if image_ref == current_ref:
             labels.append("current")
-        if tag in referenced:
+        if image_ref in referenced:
             labels.append("referenced")
         suffix = f"  [{', '.join(labels)}]" if labels else ""
         print(f"{image}{suffix}")
     return 0
 
 
-def cmd_codex_prune(args: argparse.Namespace) -> int:
+def cmd_harness_prune(args: argparse.Namespace) -> int:
     config, _ = context(args)
-    keep = referenced_image_tags(config)
-    current = current_managed_image_or_none(config)
+    driver_id = selected_driver_id(args)
+    keep = referenced_image_refs(config, driver_id)
+    current = current_managed_image_or_none(config, driver_id)
     if current:
-        keep.add(podman.image_tag(current))
+        keep.add(podman.normalized_image_ref(current))
     removed = 0
-    for image in podman.list_managed_images(config):
-        if podman.image_tag(image) in keep:
+    for image in podman.list_managed_images(config, driver_id):
+        if podman.normalized_image_ref(image) in keep:
             continue
         if args.dry_run:
             print(shlex.join(["podman", "rmi", image]))
@@ -200,32 +216,45 @@ def cmd_codex_prune(args: argparse.Namespace) -> int:
     return 0
 
 
-def referenced_image_tags(config: Config) -> set[str]:
-    """Digest tags of images referenced by saved runs.
+def referenced_image_refs(config: Config, driver_id: str = "codex") -> set[str]:
+    """Normalized managed image refs referenced by saved runs.
 
-    Shared by ``cmd_codex_images`` and ``cmd_codex_prune`` so the two commands
-    cannot disagree on which images are still referenced. Compared by tag:
-    metadata stores the bare "<image_name>:<digest>" while podman may report the
-    same image under a "localhost/" namespace.
+    Shared by image listing and pruning so the two commands cannot disagree on
+    which images are still referenced. Full refs avoid cross-talk when different
+    repositories share the same digest-like tag.
     """
-    return {podman.image_tag(m.image) for m in runs.list_runs(config.run_store)}
+    image_name = config.driver_settings(driver_id).image_name
+    refs = set()
+    for metadata in runs.list_runs(config.run_store):
+        if metadata.driver != driver_id:
+            continue
+        ref = podman.normalized_image_ref(metadata.image)
+        repo, _, _tag = ref.rpartition(":")
+        if repo == image_name:
+            refs.add(ref)
+    return refs
 
 
-def current_managed_image_or_none(config: Config) -> str | None:
-    if not podman.harness_containerfile_path(config).exists():
+def referenced_image_tags(config: Config, driver_id: str = "codex") -> set[str]:
+    return {podman.image_tag(ref) for ref in referenced_image_refs(config, driver_id)}
+
+
+def current_managed_image_or_none(config: Config, driver_id: str = "codex") -> str | None:
+    if not podman.harness_containerfile_path(config, driver_id).exists():
         return None
-    return podman.current_managed_image(config)
+    return podman.current_managed_image(config, driver_id=driver_id)
 
 
-def cmd_codex_run(args: argparse.Namespace) -> int:
+def cmd_harness_run(args: argparse.Namespace) -> int:
     config, devcontainer = context(args)
+    driver_id = selected_driver_id(args)
     preflight = resolve_run_inputs(
         config,
         args.dirty,
         git_user_name=args.git_user_name,
         git_user_email=args.git_user_email,
     )
-    image, managed_containerfile = resolve_run_image(config, args.image, args.dry_run)
+    image, managed_containerfile = resolve_run_image(config, args.image, args.dry_run, driver_id)
     _, metadata = prepare_run(
         config,
         devcontainer,
@@ -236,22 +265,15 @@ def cmd_codex_run(args: argparse.Namespace) -> int:
         git_user_email=args.git_user_email,
         preflight=preflight,
         containerfile=managed_containerfile,
+        driver_id=driver_id,
     )
     prompt = " ".join(args.prompt).strip()
-    codex_args = [
-        "codex",
-        "--cd",
-        shlex.quote(workspace_path(config, devcontainer)),
-        "--sandbox",
-        "danger-full-access",
-        "--ask-for-approval",
-        "never",
-    ]
-    if prompt:
-        codex_args.append(shlex.quote(prompt))
-    command = prelude(devcontainer) + "exec " + " ".join(codex_args)
+    driver = get_driver(driver_id)
+    command = prelude(devcontainer) + driver.launch_command(
+        workspace_path(config, devcontainer, driver_id), prompt
+    )
     status = run_container(
-        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run
+        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run, driver_id
     )
     if args.dry_run:
         return status
@@ -259,11 +281,16 @@ def cmd_codex_run(args: argparse.Namespace) -> int:
     return status if status else pull_status
 
 
-def cmd_codex_shell(args: argparse.Namespace) -> int:
+def cmd_harness_shell(args: argparse.Namespace) -> int:
     config, devcontainer = context(args)
+    driver_id = selected_driver_id(args)
     should_complete = False
     if args.run_id:
         metadata = load_run(config, args.run_id)
+        if metadata.driver != driver_id:
+            raise RuntimeError(
+                f"run {metadata.id} uses driver {metadata.driver}; use `agentbox runs enter {metadata.id}`"
+            )
         ensure_saved_run_image(config, metadata, args.dry_run)
     else:
         preflight = resolve_run_inputs(
@@ -272,7 +299,7 @@ def cmd_codex_shell(args: argparse.Namespace) -> int:
             git_user_name=args.git_user_name,
             git_user_email=args.git_user_email,
         )
-        image, managed_containerfile = resolve_run_image(config, args.image, args.dry_run)
+        image, managed_containerfile = resolve_run_image(config, args.image, args.dry_run, driver_id)
         _, metadata = prepare_run(
             config,
             devcontainer,
@@ -283,11 +310,12 @@ def cmd_codex_shell(args: argparse.Namespace) -> int:
             git_user_email=args.git_user_email,
             preflight=preflight,
             containerfile=managed_containerfile,
+            driver_id=driver_id,
         )
         should_complete = True
     command = prelude(devcontainer) + "exec bash"
     status = run_container(
-        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run
+        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run, driver_id
     )
     if args.dry_run or not should_complete:
         return status
@@ -298,7 +326,9 @@ def cmd_codex_shell(args: argparse.Namespace) -> int:
 def cmd_runs_list(args: argparse.Namespace) -> int:
     config, _ = context(args)
     for metadata in runs.list_runs(config.run_store):
-        print(f"{metadata.id}\t{metadata.base_branch}\t{metadata.created_at}\t{metadata.run_repo}")
+        print(
+            f"{metadata.id}\t{metadata.driver}\t{metadata.base_branch}\t{metadata.created_at}\t{metadata.run_repo}"
+        )
     return 0
 
 
@@ -308,7 +338,7 @@ def cmd_runs_enter(args: argparse.Namespace) -> int:
     ensure_saved_run_image(config, metadata, args.dry_run)
     command = prelude(devcontainer) + "exec bash"
     return run_container(
-        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run
+        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run, metadata.driver
     )
 
 
@@ -381,6 +411,10 @@ def context(args: argparse.Namespace) -> tuple[Config, Devcontainer | None]:
     return config, devcontainer
 
 
+def selected_driver_id(args: argparse.Namespace) -> str:
+    return getattr(args, "driver_id", "codex")
+
+
 def repo_root(args: argparse.Namespace) -> Path:
     if args.repo:
         return args.repo.resolve()
@@ -398,6 +432,7 @@ def prepare_run(
     git_user_email: str | None = None,
     preflight: tuple[gitops.RepoState, bool, gitops.GitIdentity] | None = None,
     containerfile: Path | None = None,
+    driver_id: str = "codex",
 ) -> tuple[Path, runs.RunMetadata]:
     if preflight is None:
         preflight = resolve_run_inputs(
@@ -413,7 +448,7 @@ def prepare_run(
     run_repo = run_dir / "repo"
     if dry_run:
         metadata = runs.create_metadata(
-            run_id, config.repo_root, run_repo, state.branch, state.head, image
+            run_id, config.repo_root, run_repo, state.branch, state.head, image, driver=driver_id
         )
         return run_dir, metadata
     gitops.clone_repo(config.repo_root, run_repo, include_dirty=include_dirty)
@@ -426,6 +461,7 @@ def prepare_run(
         state.branch,
         state.head,
         image,
+        driver=driver_id,
         containerfile=snapshot,
     )
     runs.write_metadata(run_dir, metadata)
@@ -502,7 +538,7 @@ def resolve_run_dir(config: Config, run_id: str) -> Path:
 
 
 def resolve_run_image(
-    config: Config, image_override: str | None, dry_run: bool
+    config: Config, image_override: str | None, dry_run: bool, driver_id: str = "codex"
 ) -> tuple[str, Path | None]:
     """Return the image to run and, for managed images, its Containerfile.
 
@@ -511,8 +547,8 @@ def resolve_run_image(
     """
     if image_override:
         return image_override, None
-    image = podman.ensure_managed_image(config, dry_run=dry_run)
-    return image, podman.harness_containerfile_path(config)
+    image = podman.ensure_managed_image(config, dry_run=dry_run, driver_id=driver_id)
+    return image, podman.harness_containerfile_path(config, driver_id)
 
 
 def ensure_saved_run_image(config: Config, metadata: runs.RunMetadata, dry_run: bool) -> None:
@@ -521,12 +557,12 @@ def ensure_saved_run_image(config: Config, metadata: runs.RunMetadata, dry_run: 
     if dry_run:
         print(shlex.join(["podman", "image", "exists", image]))
         if snapshot:
-            print(shlex.join(podman.managed_build_command(config, image, snapshot)))
+            print(shlex.join(podman.managed_build_command(config, image, snapshot, driver_id=metadata.driver)))
         return
     if podman.image_exists(image):
         return
     if snapshot and snapshot.exists():
-        podman.build_tagged_image(config, snapshot, image)
+        podman.build_tagged_image(config, snapshot, image, driver_id=metadata.driver)
         return
     raise RuntimeError(
         f"image {image} for run {metadata.id} is missing and has no Containerfile "
@@ -691,25 +727,36 @@ def run_container(
     run_repo: Path,
     command: str,
     dry_run: bool,
+    driver_id: str = "codex",
 ) -> int:
+    host_env = dict(os.environ)
     args = podman.render_run_command(
         config=config,
         devcontainer=devcontainer,
         image=image,
         run_repo=run_repo,
         command=command,
+        driver_id=driver_id,
+        host_env=host_env,
     )
     if dry_run:
         print(shlex.join(args))
         return 0
-    config.codex_home.mkdir(parents=True, exist_ok=True)
+    podman.ensure_state_mounts(config, driver_id, host_env)
     return subprocess.run(args).returncode
 
 
-def workspace_path(config: Config, devcontainer: Devcontainer | None) -> str:
+def workspace_path(config: Config, devcontainer: Devcontainer | None, driver_id: str = "codex") -> str:
     return (
         devcontainer.workspace_folder if devcontainer and devcontainer.workspace_folder else None
-    ) or (config.workspace_folder)
+    ) or (config.driver_settings(driver_id).workspace_folder)
+
+
+cmd_codex_build = cmd_harness_build
+cmd_codex_images = cmd_harness_images
+cmd_codex_prune = cmd_harness_prune
+cmd_codex_run = cmd_harness_run
+cmd_codex_shell = cmd_harness_shell
 
 
 def prelude(devcontainer: Devcontainer | None) -> str:

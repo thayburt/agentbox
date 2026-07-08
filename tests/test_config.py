@@ -20,6 +20,22 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(config.codex_home, Path("/tmp/codex-home"))
                 self.assertIn('codex_home = "/tmp/codex-home"', default_toml())
 
+    def test_default_toml_includes_kilo_defaults(self):
+        text = default_toml()
+
+        self.assertIn("[codex]", text)
+        self.assertIn("[kilo]", text)
+        self.assertIn('image_name = "agentbox-kilo"', text)
+
+    def test_kilo_defaults_load(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_config(Path(tmp))
+            settings = config.driver_settings("kilo")
+
+            self.assertEqual(settings.image_name, "agentbox-kilo")
+            self.assertEqual(settings.base_image, "ubuntu:24.04")
+            self.assertEqual(settings.workspace_folder, "/workspace")
+
     def test_git_identity_defaults_to_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_config(Path(tmp))
