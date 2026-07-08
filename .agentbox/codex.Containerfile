@@ -13,9 +13,12 @@ RUN apt-get update \
         less \
         openssh-client \
         python3 \
+        python-is-python3 \
         ripgrep \
         sudo \
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
 
 RUN mkdir -p /opt/codex-install \
     && curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_HOME=/opt/codex-install CODEX_NON_INTERACTIVE=1 CODEX_INSTALL_DIR=/usr/local/bin sh
