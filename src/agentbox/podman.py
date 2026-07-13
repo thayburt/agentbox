@@ -244,8 +244,16 @@ def render_run_command(
     ]
     for key, value in driver.env(settings, host_env).items():
         args.extend(["-e", f"{key}={value}"])
+    for key, value in driver.config_env(settings, host_env, config.repo_root).items():
+        args.extend(["-e", f"{key}={value}"])
     mounts = validated_state_mounts(
-        driver.state_mounts(settings, host_env), workspace, check_sources=False
+        [
+            *driver.state_mounts(settings, host_env),
+            *driver.run_state_mounts(settings, host_env, run_repo.parent),
+            *driver.config_mounts(settings, host_env, config.repo_root),
+        ],
+        workspace,
+        check_sources=False,
     )
     for mount in mounts:
         args.extend(["-v", render_mount(mount, config.selinux)])
@@ -260,13 +268,22 @@ def render_run_command(
 
 
 def ensure_state_mounts(
-    config: Config, driver_id: str, host_env: dict[str, str], workspace: str | None = None
+    config: Config,
+    driver_id: str,
+    host_env: dict[str, str],
+    run_repo: Path,
+    workspace: str | None = None,
 ) -> None:
     driver = get_driver(driver_id)
     settings = config.driver_settings(driver.id)
     workspace = workspace or settings.workspace_folder
     mounts = validated_state_mounts(
-        driver.state_mounts(settings, host_env), workspace
+        [
+            *driver.state_mounts(settings, host_env),
+            *driver.run_state_mounts(settings, host_env, run_repo.parent),
+            *driver.config_mounts(settings, host_env, config.repo_root),
+        ],
+        workspace,
     )
     for mount in mounts:
         if mount.kind == "directory" and mount.create:
@@ -319,6 +336,8 @@ def volume_suffix_for_mount(mode: str, mount: MountSpec) -> str:
     options: list[str] = []
     if mount.readonly:
         options.append("ro")
+    if mount.chown:
+        options.append("U")
     if mount.relabel != "none":
         suffix = volume_suffix(mode, shared=mount.relabel == "shared")
         if suffix:

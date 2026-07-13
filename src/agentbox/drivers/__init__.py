@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .base import CommonDriverSettings, Diagnostic, HarnessDriver, MountSpec
 from .codex import CodexDriver, CodexSettings
-from .kilo import KiloDriver, KiloSettings, merged_kilo_config_content
+from .kilo import KiloDriver, KiloSettings
 
 
 DRIVERS: tuple[HarnessDriver, ...] = (CodexDriver(), KiloDriver())
@@ -38,5 +38,4 @@ __all__ = [
     "all_drivers",
     "canonical_driver_id",
     "get_driver",
-    "merged_kilo_config_content",
 ]

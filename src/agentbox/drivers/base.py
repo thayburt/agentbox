@@ -20,7 +20,15 @@ class MountSpec:
     create: bool = False
     optional: bool = False
     readonly: bool = False
+    chown: bool = False
     relabel: Literal["shared", "private", "none"] = "shared"
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class InitFileSpec:
+    relative_path: Path
+    contents: str
     description: str = ""
 
 
@@ -48,8 +56,28 @@ class HarnessDriver(Protocol):
 
     def state_mounts(self, settings: object, host_env: Mapping[str, str]) -> list[MountSpec]: ...
 
+    def run_state_mounts(
+        self, settings: object, host_env: Mapping[str, str], run_dir: Path
+    ) -> list[MountSpec]: ...
+
+    def init_files(self, settings: object) -> list[InitFileSpec]: ...
+
+    def config_mounts(
+        self, settings: object, host_env: Mapping[str, str], repo_root: Path
+    ) -> list[MountSpec]: ...
+
     def env(self, settings: object, host_env: Mapping[str, str]) -> dict[str, str]: ...
+
+    def config_env(
+        self, settings: object, host_env: Mapping[str, str], repo_root: Path
+    ) -> dict[str, str]: ...
+
+    def runtime_warnings(
+        self, settings: object, host_env: Mapping[str, str], repo_root: Path
+    ) -> list[str]: ...
 
     def launch_argv(self, workspace: str, prompt: str) -> list[str]: ...
 
-    def diagnostics(self, settings: object, host_env: Mapping[str, str]) -> list[Diagnostic]: ...
+    def diagnostics(
+        self, settings: object, host_env: Mapping[str, str], repo_root: Path
+    ) -> list[Diagnostic]: ...

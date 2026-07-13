@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from .base import CommonDriverSettings, Diagnostic, MountSpec
+from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec
 
 
 @dataclass(frozen=True)
@@ -89,9 +89,37 @@ WORKDIR /workspace
             )
         ]
 
+    def run_state_mounts(
+        self, settings: object, host_env: Mapping[str, str], run_dir: Path
+    ) -> list[MountSpec]:
+        del settings, host_env, run_dir
+        return []
+
+    def init_files(self, settings: object) -> list[InitFileSpec]:
+        del settings
+        return []
+
+    def config_mounts(
+        self, settings: object, host_env: Mapping[str, str], repo_root: Path
+    ) -> list[MountSpec]:
+        del settings, host_env, repo_root
+        return []
+
     def env(self, settings: object, host_env: Mapping[str, str]) -> dict[str, str]:
         del settings, host_env
         return {"CODEX_HOME": "/codex-home"}
+
+    def config_env(
+        self, settings: object, host_env: Mapping[str, str], repo_root: Path
+    ) -> dict[str, str]:
+        del settings, host_env, repo_root
+        return {}
+
+    def runtime_warnings(
+        self, settings: object, host_env: Mapping[str, str], repo_root: Path
+    ) -> list[str]:
+        del settings, host_env, repo_root
+        return []
 
     def launch_argv(self, workspace: str, prompt: str) -> list[str]:
         args = [
@@ -107,8 +135,10 @@ WORKDIR /workspace
             args.append(prompt)
         return args
 
-    def diagnostics(self, settings: object, host_env: Mapping[str, str]) -> list[Diagnostic]:
-        del host_env
+    def diagnostics(
+        self, settings: object, host_env: Mapping[str, str], repo_root: Path
+    ) -> list[Diagnostic]:
+        del host_env, repo_root
         home = _settings(settings).codex_home.expanduser()
         return [
             Diagnostic(

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "sandbox": {
+      "enabled": false
+  },
+  "permission": {
+    "external_directory": "allow",
+    "read": "allow",
+    "edit": "allow"
+  }
+}

@@ -25,6 +25,7 @@ one when it already exists:
 - `agentbox.toml`
 - `.agentbox/codex.Containerfile`
 - `.agentbox/kilo.Containerfile`
+- `.agentbox/kilo/kilo.jsonc`
 
 Each Containerfile is the mutable local definition of its managed harness image.
 Edit one when you need a custom base image or additional tools for that harness.
@@ -158,24 +159,36 @@ codex --cd <workspace> --sandbox danger-full-access --ask-for-approval never
 Kilo launches as:
 
 ```bash
-kilo run --dir <workspace> --interactive --dangerously-skip-permissions
+kilo [<prompt>]
 ```
-
-For Kilo, `agentbox` also sets high-precedence `KILO_CONFIG_CONTENT` so
-`sandbox=false`, `sandbox_restrict_network=false`, and `permission="allow"`
-override project or global config inside the isolated clone. Existing
-`KILO_CONFIG_CONTENT` JSON is merged, preserving unrelated settings.
 
 These full-permission modes are safe only because they run against the isolated
 clone, not the original checkout.
 
-Kilo host state is mounted read-write under `/kilo-home` using XDG defaults and
-host environment overrides: `XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
-`XDG_STATE_HOME`, and `XDG_CACHE_HOME`. Missing XDG state directories are
-created by agentbox when needed; `doctor` reports them as warnings rather than
-failures. Existing `~/.kilo` and `~/.kilocode` paths are mounted when present.
-`KILO_CONFIG` is mounted as a required file when set, and `KILO_CONFIG_DIR` is
-mounted as a directory when set.
+Kilo runs as the image's `ubuntu` user. Data, state, and cache are mounted
+read-write under that user's standard home directory (`/home/ubuntu`) using the
+host `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` defaults or
+overrides. Missing directories for those mutable paths are created by agentbox;
+Podman assigns them to the user running Kilo; `doctor` reports their first-use
+absence as a warning.
+
+Kilo sandbox-policy state is private to each saved run at
+`<run_store>/<run-id>/state/kilo-sandbox-policy`. It persists when re-entering a
+run and is removed with that run by `agentbox runs prune`.
+
+Kilo global configuration is mounted read-only: `XDG_CONFIG_HOME/kilo` (or
+`~/.config/kilo`), `~/.kilo`, `~/.kilocode`, and `KILO_CONFIG_DIR` when set.
+No missing config directory is created. `agentbox init` also creates the
+repository-owned `.agentbox/kilo/kilo.jsonc`, mounted read-only at
+`/agentbox/config/kilo.jsonc` and set as `KILO_CONFIG`. This file is read from
+the host repository root rather than the isolated clone, so a run cannot change
+the config that started it.
+
+When `.agentbox/kilo/kilo.jsonc` exists, it wins over a host `KILO_CONFIG` and
+agentbox prints a warning identifying the ignored host path. If it does not
+exist, a host `KILO_CONFIG` is mounted read-only and used normally. Project Kilo
+configuration, commands, agents, and skills remain available from the isolated
+run clone, including `kilo.json`, `.kilo/`, and legacy `.kilocode/` paths.
 
 ## Bring Work Back
 

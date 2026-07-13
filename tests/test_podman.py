@@ -93,6 +93,7 @@ class PodmanTests(unittest.TestCase):
             self.assertEqual(path.name, "kilo.Containerfile")
             self.assertIn("npm install -g @kilocode/cli", original)
             self.assertIn("kilo --version", original)
+            self.assertIn("USER ubuntu", original)
             self.assertEqual(path.read_text(), "custom\n")
 
     def test_content_changes_produce_different_managed_image_tags(self):
@@ -184,7 +185,7 @@ class PodmanTests(unittest.TestCase):
 
             self.assertEqual(images, ["agentbox-kilo:other", "localhost/agentbox-kilo:same"])
 
-    def test_render_run_command_sets_kilo_env_mounts_and_launch(self):
+    def test_render_run_command_sets_kilo_home_env_and_mounts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run_repo = root / "run" / "repo"
@@ -198,7 +199,6 @@ class PodmanTests(unittest.TestCase):
                 "XDG_DATA_HOME": str(data_home),
                 "XDG_STATE_HOME": str(state_home),
                 "XDG_CACHE_HOME": str(cache_home),
-                "KILO_CONFIG_CONTENT": '{"provider":"test","sandbox":true}',
             }
 
             cmd = render_run_command(
@@ -206,48 +206,125 @@ class PodmanTests(unittest.TestCase):
                 devcontainer=None,
                 image="agentbox-kilo:test",
                 run_repo=run_repo,
-                command="exec kilo run --dir /workspace --interactive --dangerously-skip-permissions status",
+                command="exec kilo status",
                 driver_id="kilo",
                 host_env=host_env,
             )
 
-            self.assertIn("HOME=/kilo-home", cmd)
-            self.assertIn(f"{config_home / 'kilo'}:/kilo-home/.config/kilo", cmd)
-            self.assertIn(f"{data_home / 'kilo'}:/kilo-home/.local/share/kilo", cmd)
-            self.assertIn(f"{state_home / 'kilo'}:/kilo-home/.local/state/kilo", cmd)
-            self.assertIn(f"{cache_home / 'kilo'}:/kilo-home/.cache/kilo", cmd)
-            config_env = next(item for item in cmd if item.startswith("KILO_CONFIG_CONTENT="))
-            self.assertIn('"provider":"test"', config_env)
-            self.assertIn('"sandbox":false', config_env)
-            self.assertIn('"sandbox_restrict_network":false', config_env)
-            self.assertIn('"permission":"allow"', config_env)
-            self.assertEqual(cmd[-1], "exec kilo run --dir /workspace --interactive --dangerously-skip-permissions status")
+            self.assertIn("HOME=/home/ubuntu", cmd)
+            self.assertNotIn(f"{config_home / 'kilo'}:/home/ubuntu/.config/kilo", cmd)
+            self.assertIn(f"{data_home / 'kilo'}:/home/ubuntu/.local/share/kilo:U", cmd)
+            self.assertIn(f"{state_home / 'kilo'}:/home/ubuntu/.local/state/kilo:U", cmd)
+            self.assertIn(f"{cache_home / 'kilo'}:/home/ubuntu/.cache/kilo:U", cmd)
+            self.assertIn(
+                f"{run_repo.parent / 'state' / 'kilo-sandbox-policy'}:"
+                "/home/ubuntu/.local/state/kilo-sandbox-policy:U",
+                cmd,
+            )
+            self.assertFalse(any(item.startswith("KILO_CONFIG_CONTENT=") for item in cmd))
+            self.assertEqual(cmd[-1], "exec kilo status")
 
-    def test_render_run_command_rejects_invalid_kilo_config_content(self):
+    def test_kilo_agentbox_config_mounts_from_repo_root_readonly(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            agentbox_config = root / ".agentbox" / "kilo" / "kilo.jsonc"
+            agentbox_config.parent.mkdir(parents=True)
+            agentbox_config.write_text("{}\n")
             run_repo = root / "run" / "repo"
             run_repo.mkdir(parents=True)
 
-            with self.assertRaisesRegex(RuntimeError, "KILO_CONFIG_CONTENT is invalid JSON"):
-                render_run_command(
-                    config=self.config(root),
-                    devcontainer=None,
-                    image="agentbox-kilo:test",
-                    run_repo=run_repo,
-                    command="exec bash",
-                    driver_id="kilo",
-                    host_env={"KILO_CONFIG_CONTENT": "not-json"},
-                )
+            cmd = render_run_command(
+                config=self.config(root),
+                devcontainer=None,
+                image="agentbox-kilo:test",
+                run_repo=run_repo,
+                command="exec kilo",
+                driver_id="kilo",
+                host_env={"KILO_CONFIG": str(root / "host.json")},
+            )
+
+            self.assertIn(f"{agentbox_config.resolve()}:/agentbox/config/kilo.jsonc:ro", cmd)
+            self.assertIn("KILO_CONFIG=/agentbox/config/kilo.jsonc", cmd)
+            self.assertNotIn("/kilo-host/KILO_CONFIG", cmd)
+
+    def test_kilo_global_config_mounts_are_optional_and_readonly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            config_dir = home / ".config" / "kilo"
+            config_dir.mkdir(parents=True)
+            driver = get_driver("kilo")
+            mounts = driver.config_mounts(driver.default_settings({}), {"HOME": str(home)}, root)
+            global_mount = next(mount for mount in mounts if mount.target == "/home/ubuntu/.config/kilo")
+
+            self.assertTrue(global_mount.optional)
+            self.assertTrue(global_mount.readonly)
+            self.assertFalse(global_mount.create)
+
+    def test_ensure_state_mounts_does_not_create_kilo_config_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            config = self.config(root)
+
+            run_repo = root / "runs" / "run" / "repo"
+            podman.ensure_state_mounts(config, "kilo", {"HOME": str(home)}, run_repo)
+
+            self.assertFalse((home / ".config" / "kilo").exists())
+            self.assertTrue((home / ".local" / "share" / "kilo").is_dir())
+            self.assertTrue((run_repo.parent / "state" / "kilo-sandbox-policy").is_dir())
 
     def test_ensure_state_mounts_creates_required_directories(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             config = self.config(root)
 
-            podman.ensure_state_mounts(config, "codex", {})
+            podman.ensure_state_mounts(config, "codex", {}, root / "runs" / "run" / "repo")
 
             self.assertTrue(config.codex_home.is_dir())
+
+    def test_kilo_run_state_mount_renders_before_its_source_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "runs" / "run" / "repo"
+
+            cmd = render_run_command(
+                config=self.config(root),
+                devcontainer=None,
+                image="agentbox-kilo:test",
+                run_repo=run_repo,
+                command="exec kilo",
+                driver_id="kilo",
+            )
+
+            source = run_repo.parent / "state" / "kilo-sandbox-policy"
+            self.assertFalse(source.exists())
+            self.assertIn(
+                f"{source.resolve()}:/home/ubuntu/.local/state/kilo-sandbox-policy:U", cmd
+            )
+
+    def test_kilo_run_state_mount_includes_selinux_suffix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "runs" / "run" / "repo"
+            config = replace(self.config(root), selinux="auto")
+
+            with mock.patch("agentbox.podman.Path") as path_cls:
+                path_cls.return_value.exists.return_value = True
+                cmd = render_run_command(
+                    config=config,
+                    devcontainer=None,
+                    image="agentbox-kilo:test",
+                    run_repo=run_repo,
+                    command="exec kilo",
+                    driver_id="kilo",
+                )
+
+            self.assertIn(
+                f"{run_repo.parent / 'state' / 'kilo-sandbox-policy'}:"
+                "/home/ubuntu/.local/state/kilo-sandbox-policy:U,z",
+                cmd,
+            )
 
     def test_optional_missing_mounts_are_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -304,14 +381,16 @@ class PodmanTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "must not be root"):
             podman.validated_state_mounts([mount], "/workspace")
 
-    def test_kilo_config_is_required_file_mount_when_set(self):
+    def test_kilo_config_is_required_file_mount_when_set_without_agentbox_config(self):
         driver = get_driver("kilo")
         settings = driver.default_settings({})
-        mounts = driver.state_mounts(settings, {"KILO_CONFIG": "/tmp/kilo.json"})
+        with tempfile.TemporaryDirectory() as tmp:
+            mounts = driver.config_mounts(settings, {"KILO_CONFIG": "/tmp/kilo.json"}, Path(tmp))
         config_mount = next(mount for mount in mounts if mount.target == "/kilo-host/KILO_CONFIG")
 
         self.assertEqual(config_mount.kind, "file")
         self.assertFalse(config_mount.optional)
+        self.assertTrue(config_mount.readonly)
 
     def test_render_run_command_allows_missing_required_file_for_dry_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -328,7 +407,7 @@ class PodmanTests(unittest.TestCase):
                 host_env={"KILO_CONFIG": str(root / "missing.json")},
             )
 
-            self.assertIn(f"{root / 'missing.json'}:/kilo-host/KILO_CONFIG", cmd)
+            self.assertIn(f"{root / 'missing.json'}:/kilo-host/KILO_CONFIG:ro", cmd)
 
     def config(self, root: Path, codex_home: Path | None = None) -> Config:
         codex_settings = CodexSettings(

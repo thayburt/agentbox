@@ -24,4 +24,6 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/usr/l
 RUN npm install -g @kilocode/cli \
     && kilo --version
 
+USER ubuntu
+
 WORKDIR /workspace

@@ -55,16 +55,49 @@ class CliRunPreparationTests(unittest.TestCase):
 
             containerfile = root / ".agentbox" / "codex.Containerfile"
             kilo_containerfile = root / ".agentbox" / "kilo.Containerfile"
+            kilo_config = root / ".agentbox" / "kilo" / "kilo.jsonc"
             self.assertEqual(status, 0)
             self.assertTrue((root / "agentbox.toml").exists())
             self.assertIn("FROM ubuntu:24.04", containerfile.read_text())
             self.assertIn("npm install -g @kilocode/cli", kilo_containerfile.read_text())
+            self.assertIn('"$schema": "https://app.kilo.ai/config.json"', kilo_config.read_text())
 
             containerfile.write_text("custom\n")
+            kilo_config.write_text("custom\n")
             with self.quiet_output():
                 cli.cmd_init(args)
 
             self.assertEqual(containerfile.read_text(), "custom\n")
+            self.assertEqual(kilo_config.read_text(), "custom\n")
+
+    def test_kilo_config_conflict_warns_during_dry_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            agentbox_config = root / ".agentbox" / "kilo" / "kilo.jsonc"
+            agentbox_config.parent.mkdir(parents=True)
+            agentbox_config.write_text("{}\n")
+            host_config = Path(tmp) / "host-kilo.json"
+            host_config.write_text("{}\n")
+            config = load_config(root)
+            output = io.StringIO()
+            errors = io.StringIO()
+
+            with mock.patch.dict("os.environ", {"KILO_CONFIG": str(host_config)}, clear=True):
+                with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                    status = cli.run_container(
+                        config,
+                        None,
+                        "agentbox-kilo:test",
+                        root / ".agentbox" / "runs" / "dry" / "repo",
+                        "exec kilo",
+                        True,
+                        "kilo",
+                    )
+
+            self.assertEqual(status, 0)
+            self.assertIn("host KILO_CONFIG=", errors.getvalue())
+            self.assertIn(f"{agentbox_config.resolve()}:/agentbox/config/kilo.jsonc:ro", output.getvalue())
+            self.assertNotIn("/kilo-host/KILO_CONFIG", output.getvalue())
 
     def test_prepare_run_applies_identity_from_host_git_config(self):
         with tempfile.TemporaryDirectory() as tmp:

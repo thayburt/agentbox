@@ -134,6 +134,15 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"created {path}")
     config = load_config(root)
     for driver in all_drivers():
+        settings = config.driver_settings(driver.id)
+        for init_file in driver.init_files(settings):
+            path = root / init_file.relative_path
+            if path.exists():
+                print(f"{path} already exists")
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(init_file.contents)
+                print(f"created {path}")
         containerfile = podman.harness_containerfile_path(config, driver.id)
         if containerfile.exists():
             print(f"{containerfile} already exists")
@@ -155,7 +164,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         Diagnostic("devcontainer", str(devcontainer.path) if devcontainer else "none", "ok"),
     ]
     for driver in all_drivers():
-        checks.extend(driver.diagnostics(config.driver_settings(driver.id), dict(os.environ)))
+        checks.extend(
+            driver.diagnostics(config.driver_settings(driver.id), dict(os.environ), config.repo_root)
+        )
     for diagnostic in checks:
         ok = ok and diagnostic.severity != "error"
         mark = {"ok": "ok", "warning": "warn", "error": "fail"}[diagnostic.severity]
@@ -730,6 +741,10 @@ def run_container(
     driver_id: str = "codex",
 ) -> int:
     host_env = dict(os.environ)
+    driver = get_driver(driver_id)
+    settings = config.driver_settings(driver.id)
+    for warning in driver.runtime_warnings(settings, host_env, config.repo_root):
+        print(warning, file=sys.stderr)
     args = podman.render_run_command(
         config=config,
         devcontainer=devcontainer,
@@ -742,7 +757,13 @@ def run_container(
     if dry_run:
         print(shlex.join(args))
         return 0
-    podman.ensure_state_mounts(config, driver_id, host_env, workspace_path(config, devcontainer, driver_id))
+    podman.ensure_state_mounts(
+        config,
+        driver_id,
+        host_env,
+        run_repo,
+        workspace_path(config, devcontainer, driver_id),
+    )
     return subprocess.run(args).returncode
 
 
