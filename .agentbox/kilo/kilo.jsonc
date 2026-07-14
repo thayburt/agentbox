@@ -6,6 +6,7 @@
   "permission": {
     "external_directory": "allow",
     "read": "allow",
-    "edit": "allow"
+    "edit": "allow",
+    "bash": "allow"
   }
 }
