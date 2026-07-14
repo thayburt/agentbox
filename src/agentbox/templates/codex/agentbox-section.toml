@@ -1,0 +1,5 @@
+[codex]
+image_name = "@@IMAGE_NAME@@"
+base_image = "@@BASE_IMAGE@@"
+workspace_folder = "@@WORKSPACE_FOLDER@@"
+codex_home = "@@CODEX_HOME@@"

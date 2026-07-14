@@ -5,13 +5,10 @@ from pathlib import Path
 from typing import Mapping
 
 from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec
+from ..template import read_template, render_template
 
 
 AGENTBOX_CONFIG_RELATIVE_PATH = Path(".agentbox/kilo/kilo.jsonc")
-AGENTBOX_CONFIG_CONTENTS = '''{
-  "$schema": "https://app.kilo.ai/config.json"
-}
-'''
 KILO_HOME = "/home/ubuntu"
 
 
@@ -43,41 +40,18 @@ class KiloDriver:
 
     def default_toml_section(self, host_env: Mapping[str, str]) -> str:
         defaults = self.default_settings(host_env)
-        return f"""[kilo]
-image_name = \"{defaults.image_name}\"
-base_image = \"{defaults.base_image}\"
-workspace_folder = \"{defaults.workspace_folder}\"
-"""
+        return render_template(
+            "kilo/agentbox-section.toml",
+            {
+                "IMAGE_NAME": defaults.image_name,
+                "BASE_IMAGE": defaults.base_image,
+                "WORKSPACE_FOLDER": defaults.workspace_folder,
+            },
+        )
 
     def default_containerfile(self, settings: object) -> str:
         typed = _settings(settings)
-        return f"""FROM {typed.base_image}
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update \\
-    && apt-get install -y --no-install-recommends \\
-        bash \\
-        ca-certificates \\
-        curl \\
-        git \\
-        jq \\
-        less \\
-        nodejs \\
-        npm \\
-        openssh-client \\
-        python3 \\
-        ripgrep \\
-        sudo \\
-    && rm -rf /var/lib/apt/lists/*
-
-RUN npm install -g @kilocode/cli \\
-    && kilo --version
-
-USER ubuntu
-
-WORKDIR /workspace
-"""
+        return render_template("kilo/Containerfile", {"BASE_IMAGE": typed.base_image})
 
     def state_mounts(self, settings: object, host_env: Mapping[str, str]) -> list[MountSpec]:
         _settings(settings)
@@ -106,7 +80,7 @@ WORKDIR /workspace
 
     def init_files(self, settings: object) -> list[InitFileSpec]:
         _settings(settings)
-        return [InitFileSpec(AGENTBOX_CONFIG_RELATIVE_PATH, AGENTBOX_CONFIG_CONTENTS, "Kilo config")]
+        return [InitFileSpec(AGENTBOX_CONFIG_RELATIVE_PATH, read_template("kilo/kilo.jsonc"), "Kilo config")]
 
     def config_mounts(
         self, settings: object, host_env: Mapping[str, str], repo_root: Path

@@ -1,0 +1,15 @@
+# agentbox project configuration
+
+[runtime]
+run_store = ".agentbox/runs"
+selinux = "auto" # auto, z, Z, or disabled
+
+[devcontainer]
+path = ".devcontainer/devcontainer.json"
+
+@@DRIVER_SECTIONS@@
+
+[git]
+# user_name = "Your Name"
+# user_email = "you@example.com"
+sign_imports = false

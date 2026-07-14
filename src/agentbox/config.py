@@ -6,6 +6,7 @@ from pathlib import Path
 import tomllib
 
 from .drivers import CodexSettings, CommonDriverSettings, all_drivers, canonical_driver_id, get_driver
+from .template import render_template
 
 
 CONFIG_FILE = "agentbox.toml"
@@ -57,22 +58,7 @@ def default_toml() -> str:
     driver_sections = "\n".join(
         driver.default_toml_section(os.environ).rstrip() for driver in all_drivers()
     )
-    return f"""# agentbox project configuration
-
-[runtime]
-run_store = ".agentbox/runs"
-selinux = "auto" # auto, z, Z, or disabled
-
-[devcontainer]
-path = ".devcontainer/devcontainer.json"
-
-{driver_sections}
-
-[git]
-# user_name = "Your Name"
-# user_email = "you@example.com"
-sign_imports = false
-"""
+    return render_template("agentbox.toml", {"DRIVER_SECTIONS": driver_sections})
 
 
 def _get(table: dict, dotted: str, default=None):

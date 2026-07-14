@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Mapping
 
 from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec
+from ..template import render_template
 
 
 @dataclass(frozen=True)
@@ -38,41 +39,19 @@ class CodexDriver:
     def default_toml_section(self, host_env: Mapping[str, str]) -> str:
         defaults = self.default_settings(host_env)
         codex_home = host_env.get("CODEX_HOME", "~/.codex")
-        return f"""[codex]
-image_name = \"{defaults.image_name}\"
-base_image = \"{defaults.base_image}\"
-workspace_folder = \"{defaults.workspace_folder}\"
-codex_home = \"{codex_home}\"
-"""
+        return render_template(
+            "codex/agentbox-section.toml",
+            {
+                "IMAGE_NAME": defaults.image_name,
+                "BASE_IMAGE": defaults.base_image,
+                "WORKSPACE_FOLDER": defaults.workspace_folder,
+                "CODEX_HOME": codex_home,
+            },
+        )
 
     def default_containerfile(self, settings: object) -> str:
         typed = _settings(settings)
-        return f"""FROM {typed.base_image}
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV CODEX_NON_INTERACTIVE=1
-
-RUN apt-get update \\
-    && apt-get install -y --no-install-recommends \\
-        bash \\
-        ca-certificates \\
-        curl \\
-        git \\
-        jq \\
-        less \\
-        openssh-client \\
-        python3 \\
-        ripgrep \\
-        sudo \\
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /opt/codex-install \\
-    && curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_HOME=/opt/codex-install CODEX_NON_INTERACTIVE=1 CODEX_INSTALL_DIR=/usr/local/bin sh
-
-ENV CODEX_HOME=/codex-home
-
-WORKDIR /workspace
-"""
+        return render_template("codex/Containerfile", {"BASE_IMAGE": typed.base_image})
 
     def state_mounts(self, settings: object, host_env: Mapping[str, str]) -> list[MountSpec]:
         del host_env
