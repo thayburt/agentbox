@@ -40,7 +40,7 @@ def podman_rootless() -> bool | None:
 
 def harness_containerfile_path(config: Config, driver_id: str = "codex") -> Path:
     driver = get_driver(driver_id)
-    return config.repo_root / ".agentbox" / driver.containerfile_name
+    return config.repo_root / ".agentbox" / driver.id / "Containerfile"
 
 
 def harness_image_name(config: Config, digest: str, driver_id: str = "codex") -> str:

@@ -24,7 +24,6 @@ class KiloDriver:
     id = "kilo"
     display_name = "Kilo Code"
     aliases = ("kilocode",)
-    containerfile_name = "kilo.Containerfile"
 
     def default_settings(self, host_env: Mapping[str, str]) -> KiloSettings:
         del host_env

@@ -90,7 +90,7 @@ class PodmanTests(unittest.TestCase):
             path.write_text("custom\n")
             podman.ensure_harness_containerfile(config, driver_id="kilo")
 
-            self.assertEqual(path.name, "kilo.Containerfile")
+            self.assertEqual(path, Path(tmp) / ".agentbox" / "kilo" / "Containerfile")
             self.assertIn("npm install -g @kilocode/cli", original)
             self.assertIn("kilo --version", original)
             self.assertIn("USER ubuntu", original)
@@ -131,10 +131,18 @@ class PodmanTests(unittest.TestCase):
             cmd = run.call_args.args[0]
             self.assertIn("podman", cmd)
             self.assertIn("build", cmd)
-            self.assertIn(str(Path(tmp) / ".agentbox" / "codex.Containerfile"), cmd)
+            self.assertIn(str(Path(tmp) / ".agentbox" / "codex" / "Containerfile"), cmd)
             self.assertEqual(cmd[-1], str(Path(tmp) / ".agentbox"))
             containerignore = Path(tmp) / ".agentbox" / ".containerignore"
             self.assertIn("runs", containerignore.read_text().split())
+
+    def test_harness_containerfile_path_canonicalizes_kilocode_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+
+            path = podman.harness_containerfile_path(config, "kilocode")
+
+            self.assertEqual(path, Path(tmp) / ".agentbox" / "kilo" / "Containerfile")
 
     def test_build_image_force_rebuilds_existing_image(self):
         with tempfile.TemporaryDirectory() as tmp:

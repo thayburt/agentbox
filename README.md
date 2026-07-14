@@ -19,12 +19,12 @@ uv run agentbox codex build
 uv run agentbox kilo build
 ```
 
-`agentbox init` creates two local files independently and never overwrites either
-one when it already exists:
+`agentbox init` creates these local files independently and never overwrites one
+when it already exists:
 
 - `agentbox.toml`
-- `.agentbox/codex.Containerfile`
-- `.agentbox/kilo.Containerfile`
+- `.agentbox/codex/Containerfile`
+- `.agentbox/kilo/Containerfile`
 - `.agentbox/kilo/kilo.jsonc`
 
 Each Containerfile is the mutable local definition of its managed harness image.
@@ -63,7 +63,7 @@ automatically build the current managed image when it is missing.
 
 Each run also snapshots the Containerfile used to build its image into
 `.agentbox/runs/<run-id>/Containerfile`. This keeps runs reproducible: even
-after you edit `.agentbox/<harness>.Containerfile` (which changes the managed
+after you edit `.agentbox/<harness>/Containerfile` (which changes the managed
 image tag), `agentbox runs enter` and `agentbox <harness> shell --run` can
 rebuild the run's original image from its snapshot when it is no longer present
 locally.
@@ -239,6 +239,6 @@ High-impact unsupported fields such as `dockerComposeFile`, `service`, and
 
 Devcontainer `image` and `build` fields do not change harness base images.
 Workspace, environment, mounts, run arguments, and post commands remain
-supported. To change a harness base, edit `.agentbox/codex.Containerfile` or
-`.agentbox/kilo.Containerfile`, or pass `--image IMAGE` for a specific run or
+supported. To change a harness base, edit `.agentbox/codex/Containerfile` or
+`.agentbox/kilo/Containerfile`, or pass `--image IMAGE` for a specific run or
 shell.

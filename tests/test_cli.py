@@ -53,8 +53,8 @@ class CliRunPreparationTests(unittest.TestCase):
             with self.quiet_output():
                 status = cli.cmd_init(args)
 
-            containerfile = root / ".agentbox" / "codex.Containerfile"
-            kilo_containerfile = root / ".agentbox" / "kilo.Containerfile"
+            containerfile = root / ".agentbox" / "codex" / "Containerfile"
+            kilo_containerfile = root / ".agentbox" / "kilo" / "Containerfile"
             kilo_config = root / ".agentbox" / "kilo" / "kilo.jsonc"
             self.assertEqual(status, 0)
             self.assertTrue((root / "agentbox.toml").exists())
@@ -63,11 +63,13 @@ class CliRunPreparationTests(unittest.TestCase):
             self.assertIn('"$schema": "https://app.kilo.ai/config.json"', kilo_config.read_text())
 
             containerfile.write_text("custom\n")
+            kilo_containerfile.write_text("custom kilo\n")
             kilo_config.write_text("custom\n")
             with self.quiet_output():
                 cli.cmd_init(args)
 
             self.assertEqual(containerfile.read_text(), "custom\n")
+            self.assertEqual(kilo_containerfile.read_text(), "custom kilo\n")
             self.assertEqual(kilo_config.read_text(), "custom\n")
 
     def test_kilo_config_conflict_warns_during_dry_run(self):

@@ -44,7 +44,6 @@ class HarnessDriver(Protocol):
     id: str
     display_name: str
     aliases: tuple[str, ...]
-    containerfile_name: str
 
     def default_settings(self, host_env: Mapping[str, str]) -> object: ...
 

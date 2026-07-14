@@ -16,7 +16,6 @@ class CodexDriver:
     id = "codex"
     display_name = "Codex"
     aliases: tuple[str, ...] = ()
-    containerfile_name = "codex.Containerfile"
 
     def default_settings(self, host_env: Mapping[str, str]) -> CodexSettings:
         return CodexSettings(
