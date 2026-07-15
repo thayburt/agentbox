@@ -223,7 +223,7 @@ user_email = "config@example.com"
 
             with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(state_home)}, clear=True):
                 run_dir, _ = cli.prepare_run(
-                    config, None, "ignore", "agentbox-kilo:test", driver_id="kilo"
+                    config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                 )
 
             destination = run_dir / "state" / "kilo" / "model.json"
@@ -239,10 +239,10 @@ user_email = "config@example.com"
 
             with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(state_home)}, clear=True):
                 run_dir, _ = cli.prepare_run(
-                    config, None, "ignore", "agentbox-kilo:test", driver_id="kilo"
+                    config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                 )
                 dry_run_dir, _ = cli.prepare_run(
-                    config, None, "ignore", "agentbox-kilo:test", dry_run=True, driver_id="kilo"
+                    config, "ignore", "agentbox-kilo:test", dry_run=True, driver_id="kilo"
                 )
 
             self.assertFalse((run_dir / "state").exists())
@@ -261,7 +261,7 @@ user_email = "config@example.com"
                 with mock.patch("agentbox.cli.shutil.copyfileobj", side_effect=OSError("denied")):
                     with contextlib.redirect_stderr(errors):
                         run_dir, metadata = cli.prepare_run(
-                            config, None, "ignore", "agentbox-kilo:test", driver_id="kilo"
+                            config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                         )
 
             self.assertTrue(Path(metadata.run_repo).is_dir())
@@ -283,7 +283,7 @@ user_email = "config@example.com"
             with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
                 with contextlib.redirect_stderr(errors):
                     run_dir, _ = cli.prepare_run(
-                        config, None, "ignore", "agentbox-kilo:test", driver_id="kilo"
+                        config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                     )
 
             self.assertFalse((run_dir / "state" / "kilo" / "model.json").exists())
@@ -298,7 +298,7 @@ user_email = "config@example.com"
             source.write_text("model\n")
 
             with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
-                run_dir, _ = cli.prepare_run(config, None, "ignore", "agentbox-codex:test")
+                run_dir, _ = cli.prepare_run(config, "ignore", "agentbox-codex:test")
 
             self.assertFalse((run_dir / "state").exists())
 
