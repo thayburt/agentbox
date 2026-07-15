@@ -56,14 +56,17 @@ codex_home = "/tmp/codex-home"
             kilo = get_driver("kilo")
             mounts = kilo.run_state_mounts(kilo.default_settings({}), {}, run_dir)
 
-            self.assertEqual(len(mounts), 1)
-            mount = mounts[0]
-            self.assertEqual(mount.source, run_dir / "state" / "kilo-sandbox-policy")
-            self.assertEqual(mount.target, "/home/ubuntu/.local/state/kilo-sandbox-policy")
-            self.assertEqual(mount.kind, "directory")
-            self.assertTrue(mount.create)
-            self.assertTrue(mount.chown)
-            self.assertFalse(mount.readonly)
+            self.assertEqual(len(mounts), 2)
+            cache, policy = mounts
+            self.assertEqual(cache.source, run_dir / "cache")
+            self.assertEqual(cache.target, "/home/ubuntu/.cache")
+            self.assertEqual(cache.kind, "directory")
+            self.assertTrue(cache.create)
+            self.assertTrue(cache.chown)
+            self.assertFalse(cache.readonly)
+            self.assertEqual(cache.relabel, "private")
+            self.assertEqual(policy.source, run_dir / "state" / "kilo-sandbox-policy")
+            self.assertEqual(policy.target, "/home/ubuntu/.local/state/kilo-sandbox-policy")
 
             codex = get_driver("codex")
             self.assertEqual(codex.run_state_mounts(codex.default_settings({}), {}, run_dir), [])
@@ -75,6 +78,22 @@ codex_home = "/tmp/codex-home"
             diagnostics = driver.diagnostics(driver.default_settings(host_env), host_env, Path(tmp))
 
             self.assertEqual(diagnostics[0].severity, "warning")
+
+    def test_kilo_state_mounts_and_diagnostics_exclude_host_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_home = root / "cache"
+            (cache_home / "kilo").mkdir(parents=True)
+            host_env = {"HOME": str(root / "home"), "XDG_CACHE_HOME": str(cache_home)}
+            driver = get_driver("kilo")
+
+            mounts = driver.state_mounts(driver.default_settings(host_env), host_env)
+            diagnostics = driver.diagnostics(driver.default_settings(host_env), host_env, root)
+
+            self.assertFalse(any(mount.target.startswith("/home/ubuntu/.cache") for mount in mounts))
+            self.assertFalse(any(mount.source == cache_home / "kilo" for mount in mounts))
+            self.assertEqual(diagnostics[0].severity, "warning")
+            self.assertNotIn(str(cache_home), diagnostics[0].value)
 
     def test_kilo_missing_required_config_file_is_error(self):
         with tempfile.TemporaryDirectory() as tmp:

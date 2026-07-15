@@ -57,9 +57,8 @@ class KiloDriver:
         _settings(settings)
         home = _home(host_env)
         return [
-            MountSpec(_xdg_path(host_env, "XDG_DATA_HOME", home / ".local" / "share") / "kilo", f"{KILO_HOME}/.local/share/kilo", "directory", create=True, chown=True, description="Kilo XDG state"),
-            MountSpec(_xdg_path(host_env, "XDG_STATE_HOME", home / ".local" / "state") / "kilo", f"{KILO_HOME}/.local/state/kilo", "directory", create=True, chown=True, description="Kilo XDG state"),
-            MountSpec(_xdg_path(host_env, "XDG_CACHE_HOME", home / ".cache") / "kilo", f"{KILO_HOME}/.cache/kilo", "directory", create=True, chown=True, description="Kilo XDG state"),
+            MountSpec(_xdg_path(host_env, "XDG_DATA_HOME", home / ".local" / "share") / "kilo", f"{KILO_HOME}/.local/share/kilo", "directory", create=True, chown=True, description="Kilo XDG persistent storage"),
+            MountSpec(_xdg_path(host_env, "XDG_STATE_HOME", home / ".local" / "state") / "kilo", f"{KILO_HOME}/.local/state/kilo", "directory", create=True, chown=True, description="Kilo XDG persistent storage"),
         ]
 
     def run_state_mounts(
@@ -68,6 +67,15 @@ class KiloDriver:
         _settings(settings)
         del host_env
         return [
+            MountSpec(
+                run_dir / "cache",
+                f"{KILO_HOME}/.cache",
+                "directory",
+                create=True,
+                chown=True,
+                relabel="private",
+                description="per-run Kilo XDG cache",
+            ),
             MountSpec(
                 run_dir / "state" / "kilo-sandbox-policy",
                 f"{KILO_HOME}/.local/state/kilo-sandbox-policy",
@@ -150,7 +158,9 @@ class KiloDriver:
     ) -> list[Diagnostic]:
         _settings(settings)
         mounts = self.state_mounts(settings, host_env)
-        normal_paths = [mount.source for mount in mounts if mount.description == "Kilo XDG state"]
+        normal_paths = [
+            mount.source for mount in mounts if mount.description == "Kilo XDG persistent storage"
+        ]
         exists = any(path.exists() for path in normal_paths)
         severity = "ok" if exists else "warning"
         message = None if exists else "not found; first interactive setup may create it"

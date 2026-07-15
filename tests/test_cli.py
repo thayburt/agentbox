@@ -111,6 +111,34 @@ class CliRunPreparationTests(unittest.TestCase):
             self.assertIn(f"{agentbox_config.resolve()}:/agentbox/config/kilo.jsonc:ro", output.getvalue())
             self.assertNotIn("/kilo-host/KILO_CONFIG", output.getvalue())
 
+    def test_kilo_saved_run_enter_dry_run_uses_original_run_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            run_dir = config.run_store / "kilo-run"
+            run_repo = run_dir / "repo"
+            run_repo.mkdir(parents=True)
+            runs.write_metadata(
+                run_dir,
+                runs.create_metadata(
+                    "kilo-run",
+                    root,
+                    run_repo,
+                    "main",
+                    "0" * 40,
+                    "agentbox-kilo:test",
+                    driver="kilo",
+                ),
+            )
+            output = io.StringIO()
+
+            with contextlib.redirect_stdout(output):
+                status = cli.cmd_runs_enter(self.args(repo=root, run_id="kilo-run", dry_run=True))
+
+            self.assertEqual(status, 0)
+            self.assertIn(f"{run_dir / 'cache'}:/home/ubuntu/.cache:U", output.getvalue())
+            self.assertFalse((run_dir / "cache").exists())
+
     def test_prepare_run_applies_identity_from_host_git_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
@@ -412,6 +440,8 @@ user_email = "config@example.com"
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
             (config.run_store / "keep").mkdir(parents=True)
+            (config.run_store / "keep" / "cache" / "kilo").mkdir(parents=True)
+            (config.run_store / "keep" / "cache" / "kilo" / "probe").write_text("cached\n")
 
             errors = io.StringIO()
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):

@@ -218,7 +218,9 @@ class PodmanTests(unittest.TestCase):
             self.assertNotIn(f"{config_home / 'kilo'}:/home/ubuntu/.config/kilo", cmd)
             self.assertIn(f"{data_home / 'kilo'}:/home/ubuntu/.local/share/kilo:U", cmd)
             self.assertIn(f"{state_home / 'kilo'}:/home/ubuntu/.local/state/kilo:U", cmd)
-            self.assertIn(f"{cache_home / 'kilo'}:/home/ubuntu/.cache/kilo:U", cmd)
+            self.assertIn(f"{run_repo.parent / 'cache'}:/home/ubuntu/.cache:U", cmd)
+            self.assertFalse(any(str(cache_home) in item for item in cmd))
+            self.assertIn("XDG_CACHE_HOME=/home/ubuntu/.cache", cmd)
             self.assertIn(
                 f"{run_repo.parent / 'state' / 'kilo-sandbox-policy'}:"
                 "/home/ubuntu/.local/state/kilo-sandbox-policy:U",
@@ -275,6 +277,9 @@ class PodmanTests(unittest.TestCase):
 
             self.assertFalse((home / ".config" / "kilo").exists())
             self.assertTrue((home / ".local" / "share" / "kilo").is_dir())
+            self.assertTrue((home / ".local" / "state" / "kilo").is_dir())
+            self.assertFalse((home / ".cache" / "kilo").exists())
+            self.assertTrue((run_repo.parent / "cache").is_dir())
             self.assertTrue((run_repo.parent / "state" / "kilo-sandbox-policy").is_dir())
 
     def test_ensure_state_mounts_creates_required_directories(self):
@@ -300,10 +305,15 @@ class PodmanTests(unittest.TestCase):
                 driver_id="kilo",
             )
 
-            source = run_repo.parent / "state" / "kilo-sandbox-policy"
-            self.assertFalse(source.exists())
+            cache = run_repo.parent / "cache"
+            policy = run_repo.parent / "state" / "kilo-sandbox-policy"
+            self.assertFalse(cache.exists())
+            self.assertFalse(policy.exists())
             self.assertIn(
-                f"{source.resolve()}:/home/ubuntu/.local/state/kilo-sandbox-policy:U", cmd
+                f"{cache.resolve()}:/home/ubuntu/.cache:U", cmd
+            )
+            self.assertIn(
+                f"{policy.resolve()}:/home/ubuntu/.local/state/kilo-sandbox-policy:U", cmd
             )
 
     def test_kilo_run_state_mount_includes_selinux_suffix(self):
@@ -325,6 +335,10 @@ class PodmanTests(unittest.TestCase):
             self.assertIn(
                 f"{run_repo.parent / 'state' / 'kilo-sandbox-policy'}:"
                 "/home/ubuntu/.local/state/kilo-sandbox-policy:U,z",
+                cmd,
+            )
+            self.assertIn(
+                f"{run_repo.parent / 'cache'}:/home/ubuntu/.cache:U,Z",
                 cmd,
             )
 

@@ -165,12 +165,17 @@ kilo [<prompt>]
 These full-permission modes are safe only because they run against the isolated
 clone, not the original checkout.
 
-Kilo runs as the image's `ubuntu` user. Data, state, and cache are mounted
+Kilo runs as the image's `ubuntu` user. Host XDG data and state are mounted
 read-write under that user's standard home directory (`/home/ubuntu`) using the
-host `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` defaults or
-overrides. Missing directories for those mutable paths are created by agentbox;
-Podman assigns them to the user running Kilo; `doctor` reports their first-use
-absence as a warning.
+host `XDG_DATA_HOME` and `XDG_STATE_HOME` defaults or overrides. Missing
+directories for those mutable paths are created by agentbox; Podman assigns them
+to the user running Kilo; `doctor` reports their first-use absence as a warning.
+Host XDG cache is not mounted.
+
+Each saved run instead mounts `<run_store>/<run-id>/cache` at
+`/home/ubuntu/.cache`. This cache persists when re-entering the same run, is
+isolated from the host and other runs, and is removed by `agentbox runs prune`.
+Existing host cache contents remain untouched and are never copied into runs.
 
 Kilo sandbox-policy state is private to each saved run at
 `<run_store>/<run-id>/state/kilo-sandbox-policy`. It persists when re-entering a
