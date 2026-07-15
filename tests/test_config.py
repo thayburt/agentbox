@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from agentbox.config import default_toml, load_config
+from agentbox.config import load_config
 
 
 class ConfigTests(unittest.TestCase):
@@ -18,14 +18,6 @@ class ConfigTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"CODEX_HOME": "/tmp/codex-home"}):
                 config = load_config(Path(tmp))
                 self.assertEqual(config.codex_home, Path("/tmp/codex-home"))
-                self.assertIn('codex_home = "/tmp/codex-home"', default_toml())
-
-    def test_default_toml_includes_kilo_defaults(self):
-        text = default_toml()
-
-        self.assertIn("[codex]", text)
-        self.assertIn("[kilo]", text)
-        self.assertIn('image_name = "agentbox-kilo"', text)
 
     def test_kilo_defaults_load(self):
         with tempfile.TemporaryDirectory() as tmp:

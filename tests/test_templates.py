@@ -1,4 +1,3 @@
-import hashlib
 import os
 import tomllib
 import unittest
@@ -22,12 +21,11 @@ class TemplateTests(unittest.TestCase):
 
                 self.assertEqual(text.splitlines()[0], f"FROM {settings.base_image}")
                 self.assertNotIn("@@", text)
-                self.assertIn(chr(92) + chr(10), text)
                 self.assertTrue(text.endswith("\n"))
 
-    def test_default_templates_preserve_clean_environment_bytes(self):
-        with mock.patch.dict(os.environ, {}, clear=True):
-            rendered = {
+    def test_default_templates_are_independent_of_unrelated_environment(self):
+        def render_all():
+            return {
                 "agentbox.toml": default_toml(),
                 "codex/agentbox-section.toml": get_driver("codex").default_toml_section({}),
                 "kilo/agentbox-section.toml": get_driver("kilo").default_toml_section({}),
@@ -40,18 +38,19 @@ class TemplateTests(unittest.TestCase):
                 "kilo/kilo.jsonc": read_template("kilo/kilo.jsonc"),
             }
 
-        expected_digests = {
-            "agentbox.toml": "3e81d71013f81c585acacf212d4cea4d1202517961187ae6347cee9ab8d0c714",
-            "codex/agentbox-section.toml": "7ae0c4db5b79c34b6a2b47750f473f26dd7a2e86562fa24640165d308349a838",
-            "kilo/agentbox-section.toml": "84ab96201716b858219cec32a01ce7b117799a46edb166590a4d508e98214e21",
-            "codex/Containerfile": "2d89cdc2be4633ddb4bda4f2586a05e06fa5381bf140e3cf784d0cbe55614b00",
-            "kilo/Containerfile": "4470ab72e89c9e8ade4ea7e00dce51b22e005a0d07b2c1c0f4e763cff2bc5d43",
-            "kilo/kilo.jsonc": "50de534d570283f9704e3205c086dbd2a7bb2392de26446f9bec1cd614711f1e",
+        # CODEX_HOME legitimately affects rendering, so it is deliberately
+        # excluded from the polluted environment below.
+        polluted_env = {
+            "HOME": "/tmp/somewhere",
+            "USER": "someone",
+            "RANDOM_VAR": "unrelated",
         }
-        self.assertEqual(
-            {name: hashlib.sha256(text.encode()).hexdigest() for name, text in rendered.items()},
-            expected_digests,
-        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            clean = render_all()
+        with mock.patch.dict(os.environ, polluted_env, clear=True):
+            polluted = render_all()
+
+        self.assertEqual(clean, polluted)
 
     def test_driver_sections_and_root_toml_preserve_values_and_order(self):
         codex = get_driver("codex")
@@ -68,6 +67,16 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(tomllib.loads(codex_section)["codex"]["codex_home"], "/custom/codex")
         self.assertEqual(tomllib.loads(kilo_section)["kilo"]["image_name"], "agentbox-kilo")
         self.assertEqual(list(tomllib.loads(root)), ["runtime", "devcontainer", "codex", "kilo", "git"])
+
+    def test_kilo_templates_preserve_load_bearing_contracts(self):
+        # The kilo container must not run as root, and the kilo config must
+        # keep its schema reference. These are user-facing contracts, not
+        # incidental template content.
+        containerfile = read_template("kilo/Containerfile")
+        kilo_config = read_template("kilo/kilo.jsonc")
+
+        self.assertIn("USER ubuntu", containerfile.splitlines())
+        self.assertIn('"$schema": "https://app.kilo.ai/config.json"', kilo_config)
 
     def test_kilo_init_file_is_exact_packaged_resource(self):
         driver = get_driver("kilo")

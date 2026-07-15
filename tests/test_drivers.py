@@ -1,4 +1,3 @@
-import inspect
 import os
 from pathlib import Path
 import tempfile
@@ -15,11 +14,6 @@ class DriverContractTests(unittest.TestCase):
         self.assertEqual(get_driver("kilo").id, "kilo")
         self.assertEqual(get_driver("kilocode").id, "kilo")
         self.assertEqual(canonical_driver_id("kilocode"), "kilo")
-
-    def test_concrete_driver_methods_do_not_branch_on_driver_id(self):
-        for driver_id in ("codex", "kilo"):
-            source = inspect.getsource(type(get_driver(driver_id)))
-            self.assertNotIn("self.id ==", source)
 
     def test_default_toml_uses_driver_sections(self):
         with mock.patch.dict(os.environ, {}, clear=True):

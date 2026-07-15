@@ -1,13 +1,16 @@
 from pathlib import Path
 import contextlib
 import io
-import subprocess
 import tempfile
 import unittest
 from unittest import mock
 
 from agentbox import cli, gitops, runs
 from agentbox.config import load_config
+from agentbox.drivers import get_driver
+from agentbox.template import read_template
+from tests import helpers
+from tests.helpers import configure_fake_signing, git, git_output
 
 
 class CliRunPreparationTests(unittest.TestCase):
@@ -58,9 +61,16 @@ class CliRunPreparationTests(unittest.TestCase):
             kilo_config = root / ".agentbox" / "kilo" / "kilo.jsonc"
             self.assertEqual(status, 0)
             self.assertTrue((root / "agentbox.toml").exists())
-            self.assertIn("FROM ubuntu:24.04", containerfile.read_text())
-            self.assertIn("npm install -g @kilocode/cli", kilo_containerfile.read_text())
-            self.assertIn('"$schema": "https://app.kilo.ai/config.json"', kilo_config.read_text())
+            config = load_config(root)
+            self.assertEqual(
+                containerfile.read_text(),
+                get_driver("codex").default_containerfile(config.driver_settings("codex")),
+            )
+            self.assertEqual(
+                kilo_containerfile.read_text(),
+                get_driver("kilo").default_containerfile(config.driver_settings("kilo")),
+            )
+            self.assertEqual(kilo_config.read_text(), read_template("kilo/kilo.jsonc"))
 
             containerfile.write_text("custom\n")
             kilo_containerfile.write_text("custom kilo\n")
@@ -110,11 +120,11 @@ class CliRunPreparationTests(unittest.TestCase):
 
             run_repo = Path(metadata.run_repo)
             self.assertEqual(
-                self.git_output(run_repo, "config", "--local", "--get", "user.name"),
+                git_output(run_repo, "config", "--local", "--get", "user.name"),
                 "Host User",
             )
             self.assertEqual(
-                self.git_output(run_repo, "config", "--local", "--get", "user.email"),
+                git_output(run_repo, "config", "--local", "--get", "user.email"),
                 "host@example.com",
             )
 
@@ -131,8 +141,8 @@ user_name = "Config User"
 user_email = "config@example.com"
 """
             )
-            self.git(root, "add", "agentbox.toml")
-            self.git(root, "commit", "-m", "add config")
+            git(root, "add", "agentbox.toml")
+            git(root, "commit", "-m", "add config")
             config = load_config(root)
 
             _, metadata = cli.prepare_run(
@@ -146,11 +156,11 @@ user_email = "config@example.com"
 
             run_repo = Path(metadata.run_repo)
             self.assertEqual(
-                self.git_output(run_repo, "config", "--local", "--get", "user.name"),
+                git_output(run_repo, "config", "--local", "--get", "user.name"),
                 "CLI User",
             )
             self.assertEqual(
-                self.git_output(run_repo, "config", "--local", "--get", "user.email"),
+                git_output(run_repo, "config", "--local", "--get", "user.email"),
                 "cli@example.com",
             )
 
@@ -418,7 +428,7 @@ user_email = "config@example.com"
     def test_runs_import_uses_sign_imports_from_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
-            self.configure_fake_signing(root, Path(tmp))
+            configure_fake_signing(root, Path(tmp))
             (root / "agentbox.toml").write_text(
                 """
 [runtime]
@@ -439,12 +449,12 @@ sign_imports = true
             imported_head = gitops.rev_parse(root, f"agentbox/{metadata.id}")
             self.assertEqual(status, 0)
             self.assertNotEqual(imported_head, run_head)
-            self.assertIn("gpgsig", self.git_output(root, "cat-file", "commit", imported_head))
+            self.assertIn("gpgsig", git_output(root, "cat-file", "commit", imported_head))
 
     def test_runs_import_cli_override_disables_config_signing(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
-            self.configure_fake_signing(root, Path(tmp))
+            configure_fake_signing(root, Path(tmp))
             (root / "agentbox.toml").write_text(
                 """
 [runtime]
@@ -486,14 +496,7 @@ sign_imports = true
             self.assertNotEqual(gitops.current_head(root), gitops.current_head(run_repo))
 
     def init_repo(self, root: Path) -> Path:
-        root.mkdir()
-        self.git(root, "init")
-        self.git(root, "config", "user.email", "host@example.com")
-        self.git(root, "config", "user.name", "Host User")
-        (root / "file.txt").write_text("base\n")
-        self.git(root, "add", "file.txt")
-        self.git(root, "commit", "-m", "base")
-        return root
+        return helpers.init_repo(root, name="Host User", email="host@example.com")
 
     def create_committed_run(
         self, root: Path, run_id: str
@@ -503,11 +506,11 @@ sign_imports = true
         run_dir = config.run_store / run_id
         run_repo = run_dir / "repo"
         gitops.clone_repo(root, run_repo, include_dirty=False)
-        self.git(run_repo, "config", "user.email", "run@example.com")
-        self.git(run_repo, "config", "user.name", "Run User")
+        git(run_repo, "config", "user.email", "run@example.com")
+        git(run_repo, "config", "user.name", "Run User")
         (run_repo / "file.txt").write_text("base\nchange\n")
-        self.git(run_repo, "add", "file.txt")
-        self.git(run_repo, "commit", "-m", "change")
+        git(run_repo, "add", "file.txt")
+        git(run_repo, "commit", "-m", "change")
         metadata = runs.create_metadata(
             run_id,
             root,
@@ -519,25 +522,6 @@ sign_imports = true
         runs.write_metadata(run_dir, metadata)
         return run_repo, metadata
 
-    def configure_fake_signing(self, cwd: Path, tmp: Path) -> None:
-        fake_gpg = tmp / "fake-gpg"
-        fake_gpg.write_text(
-            """#!/bin/sh
-cat >/dev/null
-echo '[GNUPG:] SIG_CREATED D 1 1 00 0 0 0 0 FAKE' >&2
-cat <<'SIG'
------BEGIN PGP SIGNATURE-----
-
-fake
------END PGP SIGNATURE-----
-SIG
-exit 0
-"""
-        )
-        fake_gpg.chmod(0o755)
-        self.git(cwd, "config", "gpg.program", str(fake_gpg))
-        self.git(cwd, "config", "user.signingkey", "fake")
-
     def args(self, **kwargs):
         return type("Args", (), kwargs)()
 
@@ -545,20 +529,3 @@ exit 0
     def quiet_output(self):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             yield
-
-    def git(self, cwd: Path, *args: str) -> None:
-        subprocess.run(["git", *args], cwd=cwd, check=True, stdout=subprocess.PIPE)
-
-    def git_output(self, cwd: Path, *args: str) -> str:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=cwd,
-            check=True,
-            text=True,
-            stdout=subprocess.PIPE,
-        )
-        return result.stdout.strip()
-
-
-if __name__ == "__main__":
-    unittest.main()

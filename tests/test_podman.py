@@ -38,12 +38,10 @@ class PodmanTests(unittest.TestCase):
         self.assertEqual(volume_suffix("Z"), ":Z")
 
     def test_volume_suffix_auto_shared_vs_private(self):
-        with mock.patch("agentbox.podman.Path") as path_cls:
-            path_cls.return_value.exists.return_value = True
+        with mock.patch("agentbox.podman._selinux_enabled", return_value=True):
             self.assertEqual(volume_suffix("auto", shared=True), ":z")
             self.assertEqual(volume_suffix("auto", shared=False), ":Z")
-        with mock.patch("agentbox.podman.Path") as path_cls:
-            path_cls.return_value.exists.return_value = False
+        with mock.patch("agentbox.podman._selinux_enabled", return_value=False):
             self.assertEqual(volume_suffix("auto", shared=True), "")
             self.assertEqual(volume_suffix("auto", shared=False), "")
 
@@ -55,10 +53,7 @@ class PodmanTests(unittest.TestCase):
             codex_home.mkdir(parents=True, exist_ok=True)
             run_repo = root / "run" / "repo"
             run_repo.mkdir(parents=True)
-            # config/run paths are passed in as real Path objects; only
-            # volume_suffix's /sys/fs/selinux check goes through podman.Path.
-            with mock.patch("agentbox.podman.Path") as path_cls:
-                path_cls.return_value.exists.return_value = True
+            with mock.patch("agentbox.podman._selinux_enabled", return_value=True):
                 cmd = render_run_command(
                     config=config,
                     devcontainer=None,
@@ -78,7 +73,8 @@ class PodmanTests(unittest.TestCase):
             path.write_text("custom\n")
             podman.ensure_harness_containerfile(config)
 
-            self.assertIn("FROM ubuntu:24.04", original)
+            codex = get_driver("codex")
+            self.assertEqual(original, codex.default_containerfile(config.driver_settings("codex")))
             self.assertEqual(path.read_text(), "custom\n")
 
     def test_ensure_kilo_containerfile_writes_default_once(self):
@@ -91,9 +87,8 @@ class PodmanTests(unittest.TestCase):
             podman.ensure_harness_containerfile(config, driver_id="kilo")
 
             self.assertEqual(path, Path(tmp) / ".agentbox" / "kilo" / "Containerfile")
-            self.assertIn("npm install -g @kilocode/cli", original)
-            self.assertIn("kilo --version", original)
-            self.assertIn("USER ubuntu", original)
+            kilo = get_driver("kilo")
+            self.assertEqual(original, kilo.default_containerfile(config.driver_settings("kilo")))
             self.assertEqual(path.read_text(), "custom\n")
 
     def test_content_changes_produce_different_managed_image_tags(self):
@@ -317,8 +312,7 @@ class PodmanTests(unittest.TestCase):
             run_repo = root / "runs" / "run" / "repo"
             config = replace(self.config(root), selinux="auto")
 
-            with mock.patch("agentbox.podman.Path") as path_cls:
-                path_cls.return_value.exists.return_value = True
+            with mock.patch("agentbox.podman._selinux_enabled", return_value=True):
                 cmd = render_run_command(
                     config=config,
                     devcontainer=None,

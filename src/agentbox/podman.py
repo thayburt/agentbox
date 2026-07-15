@@ -345,11 +345,15 @@ def volume_suffix_for_mount(mode: str, mount: MountSpec) -> str:
     return ":" + ",".join(options) if options else ""
 
 
+def _selinux_enabled() -> bool:
+    return Path("/sys/fs/selinux").exists()
+
+
 def volume_suffix(mode: str, *, shared: bool = False) -> str:
     if mode == "disabled":
         return ""
     if mode in {"z", "Z"}:
         return f":{mode}"
-    if mode == "auto" and Path("/sys/fs/selinux").exists():
+    if mode == "auto" and _selinux_enabled():
         return ":z" if shared else ":Z"
     return ""
