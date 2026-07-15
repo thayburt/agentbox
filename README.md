@@ -224,27 +224,3 @@ git switch agentbox/<run-id>
 
 Uncommitted changes are never auto-committed. Enter the run and handle them
 manually.
-
-## Devcontainer Subset
-
-If `.devcontainer/devcontainer.json` exists, `agentbox` supports this subset:
-
-- `image`
-- `build.context`
-- `build.dockerfile`
-- `workspaceFolder`
-- `containerEnv`
-- `remoteEnv`
-- `mounts`
-- `runArgs`
-- `postCreateCommand`
-- `postStartCommand`
-
-High-impact unsupported fields such as `dockerComposeFile`, `service`, and
-`features` fail fast.
-
-Devcontainer `image` and `build` fields do not change harness base images.
-Workspace, environment, mounts, run arguments, and post commands remain
-supported. To change a harness base, edit `.agentbox/codex/Containerfile` or
-`.agentbox/kilo/Containerfile`, or pass `--image IMAGE` for a specific run or
-shell.

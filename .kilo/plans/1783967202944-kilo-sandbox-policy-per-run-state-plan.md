@@ -45,7 +45,7 @@ No change required: `doctor` has no run context, and a missing per-run dir is cr
 
 ## Implementation Steps
 1. Add `run_state_mounts` to the protocol in `drivers/base.py`; implement empty in `CodexDriver`, real mount in `KiloDriver`.
-2. Update `podman.render_run_command` to include run-state mounts (workspace/run clone → state → run-state → config → devcontainer order).
+2. Update `podman.render_run_command` to include run-state mounts (workspace/run clone → state → run-state → config order).
 3. Update `podman.ensure_state_mounts` to accept the run dir (via `run_repo`), validate, and create run-state mount sources; update the `cli.run_container` call site.
 4. Tests:
    - `tests/test_drivers.py`: `KiloDriver.run_state_mounts` returns the sandbox-policy mount rooted at `run_dir / "state"`, targeting `/home/ubuntu/.local/state/kilo-sandbox-policy`, rw, create+chown; Codex returns `[]`.

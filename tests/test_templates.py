@@ -66,7 +66,7 @@ class TemplateTests(unittest.TestCase):
 
         self.assertEqual(tomllib.loads(codex_section)["codex"]["codex_home"], "/custom/codex")
         self.assertEqual(tomllib.loads(kilo_section)["kilo"]["image_name"], "agentbox-kilo")
-        self.assertEqual(list(tomllib.loads(root)), ["runtime", "devcontainer", "codex", "kilo", "git"])
+        self.assertEqual(list(tomllib.loads(root)), ["runtime", "codex", "kilo", "git"])
 
     def test_kilo_templates_preserve_load_bearing_contracts(self):
         # The kilo container must not run as root, and the kilo config must

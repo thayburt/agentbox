@@ -98,7 +98,6 @@ class CliRunPreparationTests(unittest.TestCase):
                 with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
                     status = cli.run_container(
                         config,
-                        None,
                         "agentbox-kilo:test",
                         root / ".agentbox" / "runs" / "dry" / "repo",
                         "exec kilo",
@@ -144,7 +143,7 @@ class CliRunPreparationTests(unittest.TestCase):
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
 
-            _, metadata = cli.prepare_run(config, None, "ignore", "agentbox-codex:test")
+            _, metadata = cli.prepare_run(config, "ignore", "agentbox-codex:test")
 
             run_repo = Path(metadata.run_repo)
             self.assertEqual(
@@ -175,7 +174,6 @@ user_email = "config@example.com"
 
             _, metadata = cli.prepare_run(
                 config,
-                None,
                 "ignore",
                 "agentbox-codex:test",
                 git_user_name="CLI User",
@@ -197,7 +195,7 @@ user_email = "config@example.com"
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
 
-            _, metadata = cli.prepare_run(config, None, "ignore", "custom/image:tag")
+            _, metadata = cli.prepare_run(config, "ignore", "custom/image:tag")
 
             self.assertEqual(metadata.image, "custom/image:tag")
             self.assertEqual(metadata.driver, "codex")
@@ -209,7 +207,7 @@ user_email = "config@example.com"
             config = load_config(root)
 
             _, metadata = cli.prepare_run(
-                config, None, "ignore", "agentbox-kilo:test", driver_id="kilo"
+                config, "ignore", "agentbox-kilo:test", driver_id="kilo"
             )
 
             self.assertEqual(metadata.driver, "kilo")
@@ -344,7 +342,6 @@ user_email = "config@example.com"
 
             run_dir, metadata = cli.prepare_run(
                 config,
-                None,
                 "ignore",
                 "agentbox-codex:test",
                 containerfile=containerfile,

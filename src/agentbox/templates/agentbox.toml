@@ -4,9 +4,6 @@
 run_store = ".agentbox/runs"
 selinux = "auto" # auto, z, Z, or disabled
 
-[devcontainer]
-path = ".devcontainer/devcontainer.json"
-
 @@DRIVER_SECTIONS@@
 
 [git]

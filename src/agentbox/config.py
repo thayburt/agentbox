@@ -16,7 +16,6 @@ CONFIG_FILE = "agentbox.toml"
 class Config:
     repo_root: Path
     run_store: Path
-    devcontainer: Path | None
     selinux: str
     git_user_name: str | None
     git_user_email: str | None
@@ -78,7 +77,6 @@ def load_config(repo_root: Path) -> Config:
         data = tomllib.loads(path.read_text())
 
     run_store_raw = _get(data, "runtime.run_store", ".agentbox/runs")
-    devcontainer_raw = _get(data, "devcontainer.path", ".devcontainer/devcontainer.json")
     harnesses = {}
     for driver in all_drivers():
         section = data.get(driver.id, {})
@@ -90,12 +88,10 @@ def load_config(repo_root: Path) -> Config:
         harnesses[driver.id] = settings
 
     run_store = _resolve_repo_path(repo_root, run_store_raw)
-    devcontainer = _resolve_repo_path(repo_root, devcontainer_raw) if devcontainer_raw else None
 
     return Config(
         repo_root=repo_root,
         run_store=run_store,
-        devcontainer=devcontainer,
         selinux=str(_get(data, "runtime.selinux", "auto")),
         git_user_name=_optional_str(_get(data, "git.user_name")),
         git_user_email=_optional_str(_get(data, "git.user_email")),

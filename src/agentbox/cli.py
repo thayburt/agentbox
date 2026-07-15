@@ -13,7 +13,6 @@ import tempfile
 from agentbox.template import render_template
 
 from .config import CONFIG_FILE, Config, default_toml, load_config
-from .devcontainer import Devcontainer, load_devcontainer, shell_join
 from . import gitops
 from . import podman
 from . import runs
@@ -165,7 +164,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    config, devcontainer = context(args)
+    config = context(args)
     ok = True
     version = podman.podman_version()
     rootless = podman.podman_rootless()
@@ -173,7 +172,6 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         Diagnostic("repo", str(config.repo_root), "ok"),
         Diagnostic("podman", version or "not found", "ok" if version else "error"),
         Diagnostic("rootless", str(rootless), "ok" if rootless is True else "error"),
-        Diagnostic("devcontainer", str(devcontainer.path) if devcontainer else "none", "ok"),
     ]
     for driver in all_drivers():
         checks.extend(
@@ -188,16 +186,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_harness_build(args: argparse.Namespace) -> int:
-    config, devcontainer = context(args)
+    config = context(args)
     driver_id = selected_driver_id(args)
     podman.build_image(
-        config, devcontainer, dry_run=args.dry_run, force=args.rebuild, driver_id=driver_id
+        config, dry_run=args.dry_run, force=args.rebuild, driver_id=driver_id
     )
     return 0
 
 
 def cmd_harness_images(args: argparse.Namespace) -> int:
-    config, _ = context(args)
+    config = context(args)
     driver_id = selected_driver_id(args)
     referenced = referenced_image_refs(config, driver_id)
     current = current_managed_image_or_none(config, driver_id)
@@ -219,7 +217,7 @@ def cmd_harness_images(args: argparse.Namespace) -> int:
 
 
 def cmd_harness_prune(args: argparse.Namespace) -> int:
-    config, _ = context(args)
+    config = context(args)
     driver_id = selected_driver_id(args)
     keep = referenced_image_refs(config, driver_id)
     current = current_managed_image_or_none(config, driver_id)
@@ -270,7 +268,7 @@ def current_managed_image_or_none(config: Config, driver_id: str = "codex") -> s
 
 
 def cmd_harness_run(args: argparse.Namespace) -> int:
-    config, devcontainer = context(args)
+    config = context(args)
     driver_id = selected_driver_id(args)
     preflight = resolve_run_inputs(
         config,
@@ -281,7 +279,6 @@ def cmd_harness_run(args: argparse.Namespace) -> int:
     image, managed_containerfile = resolve_run_image(config, args.image, args.dry_run, driver_id)
     _, metadata = prepare_run(
         config,
-        devcontainer,
         args.dirty,
         image,
         dry_run=args.dry_run,
@@ -293,10 +290,10 @@ def cmd_harness_run(args: argparse.Namespace) -> int:
     )
     prompt = " ".join(args.prompt).strip()
     driver = get_driver(driver_id)
-    argv = driver.launch_argv(workspace_path(config, devcontainer, driver_id), prompt)
-    command = prelude(devcontainer) + "exec " + shlex.join(argv)
+    argv = driver.launch_argv(config.driver_settings(driver_id).workspace_folder, prompt)
+    command = "exec " + shlex.join(argv)
     status = run_container(
-        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run, driver_id
+        config, metadata.image, Path(metadata.run_repo), command, args.dry_run, driver_id
     )
     if args.dry_run:
         return status
@@ -305,7 +302,7 @@ def cmd_harness_run(args: argparse.Namespace) -> int:
 
 
 def cmd_harness_shell(args: argparse.Namespace) -> int:
-    config, devcontainer = context(args)
+    config = context(args)
     driver_id = selected_driver_id(args)
     should_complete = False
     if args.run_id:
@@ -325,7 +322,6 @@ def cmd_harness_shell(args: argparse.Namespace) -> int:
         image, managed_containerfile = resolve_run_image(config, args.image, args.dry_run, driver_id)
         _, metadata = prepare_run(
             config,
-            devcontainer,
             args.dirty,
             image,
             dry_run=args.dry_run,
@@ -336,9 +332,9 @@ def cmd_harness_shell(args: argparse.Namespace) -> int:
             driver_id=driver_id,
         )
         should_complete = True
-    command = prelude(devcontainer) + "exec bash"
+    command = "exec bash"
     status = run_container(
-        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run, driver_id
+        config, metadata.image, Path(metadata.run_repo), command, args.dry_run, driver_id
     )
     if args.dry_run or not should_complete:
         return status
@@ -347,7 +343,7 @@ def cmd_harness_shell(args: argparse.Namespace) -> int:
 
 
 def cmd_runs_list(args: argparse.Namespace) -> int:
-    config, _ = context(args)
+    config = context(args)
     for metadata in runs.list_runs(config.run_store):
         print(
             f"{metadata.id}\t{metadata.driver}\t{metadata.base_branch}\t{metadata.created_at}\t{metadata.run_repo}"
@@ -356,17 +352,17 @@ def cmd_runs_list(args: argparse.Namespace) -> int:
 
 
 def cmd_runs_enter(args: argparse.Namespace) -> int:
-    config, devcontainer = context(args)
+    config = context(args)
     metadata = load_run(config, args.run_id)
     ensure_saved_run_image(config, metadata, args.dry_run)
-    command = prelude(devcontainer) + "exec bash"
+    command = "exec bash"
     return run_container(
-        config, devcontainer, metadata.image, Path(metadata.run_repo), command, args.dry_run, metadata.driver
+        config, metadata.image, Path(metadata.run_repo), command, args.dry_run, metadata.driver
     )
 
 
 def cmd_runs_import(args: argparse.Namespace) -> int:
-    config, _ = context(args)
+    config = context(args)
     metadata = load_run(config, args.run_id)
     run_repo = Path(metadata.run_repo)
     branch = f"agentbox/{metadata.id}"
@@ -402,7 +398,7 @@ def cmd_runs_import(args: argparse.Namespace) -> int:
 
 
 def cmd_runs_prune(args: argparse.Namespace) -> int:
-    config, _ = context(args)
+    config = context(args)
     if not args.all and not args.run_id:
         print("provide run ids or --all", file=sys.stderr)
         return 2
@@ -427,11 +423,8 @@ def cmd_runs_prune(args: argparse.Namespace) -> int:
     return status
 
 
-def context(args: argparse.Namespace) -> tuple[Config, Devcontainer | None]:
-    root = repo_root(args)
-    config = load_config(root)
-    devcontainer = load_devcontainer(config.devcontainer)
-    return config, devcontainer
+def context(args: argparse.Namespace) -> Config:
+    return load_config(repo_root(args))
 
 
 def selected_driver_id(args: argparse.Namespace) -> str:
@@ -447,7 +440,6 @@ def repo_root(args: argparse.Namespace) -> Path:
 
 def prepare_run(
     config: Config,
-    devcontainer: Devcontainer | None,
     dirty_mode: str,
     image: str,
     dry_run: bool = False,
@@ -792,7 +784,6 @@ def print_later_message(metadata: runs.RunMetadata, commit_count: int) -> None:
 
 def run_container(
     config: Config,
-    devcontainer: Devcontainer | None,
     image: str,
     run_repo: Path,
     command: str,
@@ -806,7 +797,6 @@ def run_container(
         print(warning, file=sys.stderr)
     args = podman.render_run_command(
         config=config,
-        devcontainer=devcontainer,
         image=image,
         run_repo=run_repo,
         command=command,
@@ -821,15 +811,9 @@ def run_container(
         driver_id,
         host_env,
         run_repo,
-        workspace_path(config, devcontainer, driver_id),
+        settings.workspace_folder,
     )
     return subprocess.run(args).returncode
-
-
-def workspace_path(config: Config, devcontainer: Devcontainer | None, driver_id: str = "codex") -> str:
-    return (
-        devcontainer.workspace_folder if devcontainer and devcontainer.workspace_folder else None
-    ) or (config.driver_settings(driver_id).workspace_folder)
 
 
 cmd_codex_build = cmd_harness_build
@@ -837,15 +821,6 @@ cmd_codex_images = cmd_harness_images
 cmd_codex_prune = cmd_harness_prune
 cmd_codex_run = cmd_harness_run
 cmd_codex_shell = cmd_harness_shell
-
-
-def prelude(devcontainer: Devcontainer | None) -> str:
-    if not devcontainer:
-        return ""
-    commands = shell_join([*devcontainer.post_create, *devcontainer.post_start])
-    if not commands:
-        return ""
-    return f"set -e; {commands}; "
 
 
 if __name__ == "__main__":

@@ -6,7 +6,6 @@ import shlex
 import subprocess
 
 from .config import Config
-from .devcontainer import Devcontainer
 from .drivers import MountSpec, get_driver
 
 
@@ -50,13 +49,11 @@ def harness_image_name(config: Config, digest: str, driver_id: str = "codex") ->
 
 def build_image(
     config: Config,
-    devcontainer: Devcontainer | None,
     dry_run: bool = False,
     *,
     force: bool = False,
     driver_id: str = "codex",
 ) -> list[str]:
-    del devcontainer
     image = current_managed_image(config, dry_run=dry_run, driver_id=driver_id)
     containerfile = harness_containerfile_path(config, driver_id)
     # A forced rebuild also refreshes the base image, since the content-addressed
@@ -134,7 +131,7 @@ def ensure_managed_image(config: Config, *, dry_run: bool = False, driver_id: st
         print(shlex.join(["podman", "image", "exists", image]))
         print(shlex.join(managed_build_command(config, image, driver_id=driver_id)))
     elif not image_exists(image):
-        build_image(config, None, driver_id=driver_id)
+        build_image(config, driver_id=driver_id)
     return image
 
 
@@ -214,7 +211,6 @@ def default_containerfile_digest(config: Config, driver_id: str = "codex") -> st
 def render_run_command(
     *,
     config: Config,
-    devcontainer: Devcontainer | None,
     image: str,
     run_repo: Path,
     command: str,
@@ -224,10 +220,7 @@ def render_run_command(
     driver = get_driver(driver_id)
     settings = config.driver_settings(driver.id)
     host_env = host_env or {}
-    workspace = (
-        devcontainer.workspace_folder if devcontainer and devcontainer.workspace_folder else None
-    )
-    workspace = workspace or settings.workspace_folder
+    workspace = settings.workspace_folder
     # The run clone is ephemeral and container-private, so :Z is appropriate.
     run_repo_suffix = volume_suffix(config.selinux, shared=False)
 
@@ -257,12 +250,6 @@ def render_run_command(
     )
     for mount in mounts:
         args.extend(["-v", render_mount(mount, config.selinux)])
-    if devcontainer:
-        for key, value in devcontainer.env.items():
-            args.extend(["-e", f"{key}={value}"])
-        for mount in devcontainer.mounts:
-            args.extend(["--mount", mount])
-        args.extend(devcontainer.run_args)
     args.extend([image, "bash", "-lc", command])
     return args
 

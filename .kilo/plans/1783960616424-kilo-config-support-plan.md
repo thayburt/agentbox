@@ -106,7 +106,6 @@ In `podman.render_run_command`, combine env dictionaries in this order so config
 
 1. `driver.env(...)`
 2. `driver.config_env(...)`
-3. devcontainer env, preserving current devcontainer behavior
 
 ### 5. Render and create mounts centrally
 Update `podman.render_run_command` to render:
@@ -114,7 +113,6 @@ Update `podman.render_run_command` to render:
 1. workspace/run clone mount
 2. `driver.state_mounts(...)`
 3. `driver.config_mounts(..., config.repo_root)`
-4. devcontainer mounts/run args
 
 Update `podman.ensure_state_mounts` to validate and create only mutable state mounts. It should also validate config mounts but never create them. A simple approach is:
 

@@ -17,7 +17,7 @@ The Podman build context remains `.agentbox`; `.agentbox/runs/<run-id>/Container
    - In `src/agentbox/podman.py`, make `harness_containerfile_path()` canonicalize through `get_driver()` and return `repo_root / ".agentbox" / driver.id / "Containerfile"`.
    - Keep Containerfile creation behavior unchanged apart from location; `ensure_harness_containerfile()` must create the harness directory and must not overwrite an existing nested Containerfile.
    - Remove `containerfile_name` from `HarnessDriver` in `src/agentbox/drivers/base.py` and from `CodexDriver` and `KiloDriver`, since all drivers now follow the same convention.
-   - Do not alter the `.agentbox` build context, `.containerignore`, run snapshot paths, Kilo config paths/mounts, or devcontainer Dockerfile handling.
+    - Do not alter the `.agentbox` build context, `.containerignore`, run snapshot paths, or Kilo config paths/mounts.
 
 3. **Update and strengthen path-focused tests.**
    - Update `tests/test_podman.py` to expect `.agentbox/codex/Containerfile` in generated build commands while still asserting that the final build context is `.agentbox`.

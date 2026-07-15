@@ -22,7 +22,6 @@ class PodmanTests(unittest.TestCase):
             config = self.config(root, codex_home=codex_home)
             cmd = render_run_command(
                 config=config,
-                devcontainer=None,
                 image="agentbox-codex:test",
                 run_repo=run_repo,
                 command="exec bash",
@@ -56,7 +55,6 @@ class PodmanTests(unittest.TestCase):
             with mock.patch("agentbox.podman._selinux_enabled", return_value=True):
                 cmd = render_run_command(
                     config=config,
-                    devcontainer=None,
                     image="agentbox-codex:test",
                     run_repo=run_repo,
                     command="exec bash",
@@ -110,7 +108,7 @@ class PodmanTests(unittest.TestCase):
             with mock.patch("agentbox.podman.image_exists", return_value=True), mock.patch(
                 "agentbox.podman.subprocess.run"
             ) as run:
-                podman.build_image(config, None)
+                podman.build_image(config)
 
             run.assert_not_called()
 
@@ -121,7 +119,7 @@ class PodmanTests(unittest.TestCase):
             with mock.patch("agentbox.podman.image_exists", return_value=False), mock.patch(
                 "agentbox.podman.subprocess.run"
             ) as run:
-                podman.build_image(config, None)
+                podman.build_image(config)
 
             cmd = run.call_args.args[0]
             self.assertIn("podman", cmd)
@@ -146,7 +144,7 @@ class PodmanTests(unittest.TestCase):
             with mock.patch("agentbox.podman.image_exists", return_value=True), mock.patch(
                 "agentbox.podman.subprocess.run"
             ) as run:
-                podman.build_image(config, None, force=True)
+                podman.build_image(config, force=True)
 
             cmd = run.call_args.args[0]
             self.assertIn("--pull=newer", cmd)
@@ -206,7 +204,6 @@ class PodmanTests(unittest.TestCase):
 
             cmd = render_run_command(
                 config=self.config(root),
-                devcontainer=None,
                 image="agentbox-kilo:test",
                 run_repo=run_repo,
                 command="exec kilo status",
@@ -239,7 +236,6 @@ class PodmanTests(unittest.TestCase):
 
             cmd = render_run_command(
                 config=self.config(root),
-                devcontainer=None,
                 image="agentbox-kilo:test",
                 run_repo=run_repo,
                 command="exec kilo",
@@ -297,7 +293,6 @@ class PodmanTests(unittest.TestCase):
 
             cmd = render_run_command(
                 config=self.config(root),
-                devcontainer=None,
                 image="agentbox-kilo:test",
                 run_repo=run_repo,
                 command="exec kilo",
@@ -324,7 +319,6 @@ class PodmanTests(unittest.TestCase):
             with mock.patch("agentbox.podman._selinux_enabled", return_value=True):
                 cmd = render_run_command(
                     config=config,
-                    devcontainer=None,
                     image="agentbox-kilo:test",
                     run_repo=run_repo,
                     command="exec kilo",
@@ -413,7 +407,6 @@ class PodmanTests(unittest.TestCase):
             run_repo.mkdir(parents=True)
             cmd = render_run_command(
                 config=self.config(root),
-                devcontainer=None,
                 image="agentbox-kilo:test",
                 run_repo=run_repo,
                 command="exec kilo",
@@ -433,7 +426,6 @@ class PodmanTests(unittest.TestCase):
         return Config(
             repo_root=root,
             run_store=root / "runs",
-            devcontainer=None,
             selinux="disabled",
             git_user_name=None,
             git_user_email=None,
