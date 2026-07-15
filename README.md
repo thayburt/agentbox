@@ -165,21 +165,22 @@ kilo [<prompt>]
 These full-permission modes are safe only because they run against the isolated
 clone, not the original checkout.
 
-Kilo runs as the image's `ubuntu` user. Host XDG data and state are mounted
-read-write under that user's standard home directory (`/home/ubuntu`) using the
-host `XDG_DATA_HOME` and `XDG_STATE_HOME` defaults or overrides. Missing
-directories for those mutable paths are created by agentbox; Podman assigns them
-to the user running Kilo; `doctor` reports their first-use absence as a warning.
-Host XDG cache is not mounted.
+Kilo runs as the image's `ubuntu` user. Host Kilo XDG data is mounted read-write
+at `/home/ubuntu/.local/share/kilo`, using the host `XDG_DATA_HOME` default or
+override. This keeps authentication shared: Kilo stores `auth.json` in XDG data.
+Agentbox creates this mutable host-backed directory when needed; Podman assigns
+it to the user running Kilo; `doctor` reports its first-use absence as a warning.
+Host XDG cache and state are not mounted.
 
-Each saved run instead mounts `<run_store>/<run-id>/cache` at
-`/home/ubuntu/.cache`. This cache persists when re-entering the same run, is
-isolated from the host and other runs, and is removed by `agentbox runs prune`.
-Existing host cache contents remain untouched and are never copied into runs.
-
-Kilo sandbox-policy state is private to each saved run at
-`<run_store>/<run-id>/state/kilo-sandbox-policy`. It persists when re-entering a
-run and is removed with that run by `agentbox runs prune`.
+Each saved run mounts `<run_store>/<run-id>/cache` at `/home/ubuntu/.cache` and
+`<run_store>/<run-id>/state` at `/home/ubuntu/.local/state`. Cache and state
+persist when re-entering the same run, are isolated from the host and other
+runs, and are removed together by `agentbox runs prune`. Existing host cache
+and state contents remain untouched and are never copied into runs, except that
+new Kilo runs snapshot an existing host `XDG_STATE_HOME/kilo/model.json` into
+their state tree. This optional seed is non-fatal if missing or unreadable, does
+not propagate later host changes, and is not applied retroactively to existing
+saved runs.
 
 Kilo global configuration is mounted read-only: `XDG_CONFIG_HOME/kilo` (or
 `~/.config/kilo`), `~/.kilo`, `~/.kilocode`, and `KILO_CONFIG_DIR` when set.

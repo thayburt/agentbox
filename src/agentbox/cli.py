@@ -5,8 +5,10 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 
 from agentbox.template import render_template
 
@@ -15,7 +17,7 @@ from .devcontainer import Devcontainer, load_devcontainer, shell_join
 from . import gitops
 from . import podman
 from . import runs
-from .drivers import Diagnostic, all_drivers, canonical_driver_id, get_driver
+from .drivers import Diagnostic, RunSeedFileSpec, all_drivers, canonical_driver_id, get_driver
 
 
 PULL_CHOICES = ("prompt", "branch", "ff-only", "later")
@@ -475,6 +477,7 @@ def prepare_run(
     gitops.clone_repo(config.repo_root, run_repo, include_dirty=include_dirty)
     gitops.apply_git_identity(run_repo, resolved_identity)
     snapshot = snapshot_containerfile(run_dir, containerfile)
+    seed_run_files(config, driver_id, run_dir)
     metadata = runs.create_metadata(
         run_id,
         config.repo_root,
@@ -487,6 +490,52 @@ def prepare_run(
     )
     runs.write_metadata(run_dir, metadata)
     return run_dir, metadata
+
+
+def seed_run_files(config: Config, driver_id: str, run_dir: Path) -> None:
+    driver = get_driver(driver_id)
+    settings = config.driver_settings(driver.id)
+    for seed in driver.run_seed_files(settings, dict(os.environ), run_dir):
+        try:
+            copy_seed_file(seed)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            warn_seed_failure(seed, exc)
+
+
+def copy_seed_file(seed: RunSeedFileSpec) -> None:
+    source_fd = os.open(seed.source, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        source_stat = os.fstat(source_fd)
+        if not stat.S_ISREG(source_stat.st_mode) or os.path.lexists(seed.destination):
+            return
+        seed.destination.parent.mkdir(parents=True, exist_ok=True)
+        temp_fd, temp_name = tempfile.mkstemp(dir=seed.destination.parent)
+        temp_path = Path(temp_name)
+        try:
+            with os.fdopen(source_fd, "rb", closefd=False) as source_file:
+                with os.fdopen(temp_fd, "wb") as temp_file:
+                    shutil.copyfileobj(source_file, temp_file)
+                    temp_file.flush()
+                    os.fchmod(temp_file.fileno(), stat.S_IMODE(source_stat.st_mode))
+                    os.utime(
+                        temp_file.fileno(),
+                        ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns),
+                    )
+            os.link(temp_path, seed.destination)
+        finally:
+            temp_path.unlink(missing_ok=True)
+    finally:
+        os.close(source_fd)
+
+
+def warn_seed_failure(seed: RunSeedFileSpec, exc: OSError) -> None:
+    print(
+        f"agentbox: warning: could not seed {seed.description or 'run file'} "
+        f"from {seed.source} to {seed.destination}: {exc}",
+        file=sys.stderr,
+    )
 
 
 def snapshot_containerfile(run_dir: Path, containerfile: Path | None) -> str | None:

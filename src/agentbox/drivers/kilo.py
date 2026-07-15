@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec
+from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec, RunSeedFileSpec
 from ..template import read_template, render_template
 
 
@@ -57,8 +57,7 @@ class KiloDriver:
         _settings(settings)
         home = _home(host_env)
         return [
-            MountSpec(_xdg_path(host_env, "XDG_DATA_HOME", home / ".local" / "share") / "kilo", f"{KILO_HOME}/.local/share/kilo", "directory", create=True, chown=True, description="Kilo XDG persistent storage"),
-            MountSpec(_xdg_path(host_env, "XDG_STATE_HOME", home / ".local" / "state") / "kilo", f"{KILO_HOME}/.local/state/kilo", "directory", create=True, chown=True, description="Kilo XDG persistent storage"),
+            MountSpec(_xdg_path(host_env, "XDG_DATA_HOME", home / ".local" / "share") / "kilo", f"{KILO_HOME}/.local/share/kilo", "directory", create=True, chown=True, description="Kilo XDG data"),
         ]
 
     def run_state_mounts(
@@ -77,12 +76,28 @@ class KiloDriver:
                 description="per-run Kilo XDG cache",
             ),
             MountSpec(
-                run_dir / "state" / "kilo-sandbox-policy",
-                f"{KILO_HOME}/.local/state/kilo-sandbox-policy",
+                run_dir / "state",
+                f"{KILO_HOME}/.local/state",
                 "directory",
                 create=True,
                 chown=True,
-                description="Kilo sandbox policy state",
+                relabel="private",
+                description="per-run Kilo XDG state",
+            )
+        ]
+
+    def run_seed_files(
+        self, settings: object, host_env: Mapping[str, str], run_dir: Path
+    ) -> list[RunSeedFileSpec]:
+        _settings(settings)
+        home = _home(host_env)
+        return [
+            RunSeedFileSpec(
+                _xdg_path(host_env, "XDG_STATE_HOME", home / ".local" / "state")
+                / "kilo"
+                / "model.json",
+                run_dir / "state" / "kilo" / "model.json",
+                "Kilo model selection",
             )
         ]
 
@@ -159,12 +174,12 @@ class KiloDriver:
         _settings(settings)
         mounts = self.state_mounts(settings, host_env)
         normal_paths = [
-            mount.source for mount in mounts if mount.description == "Kilo XDG persistent storage"
+            mount.source for mount in mounts if mount.description == "Kilo XDG data"
         ]
         exists = any(path.exists() for path in normal_paths)
         severity = "ok" if exists else "warning"
         message = None if exists else "not found; first interactive setup may create it"
-        diagnostics = [Diagnostic("kilo_state", ", ".join(str(path) for path in normal_paths), severity, message)]
+        diagnostics = [Diagnostic("kilo_data", ", ".join(str(path) for path in normal_paths), severity, message)]
         agentbox_config = repo_root / AGENTBOX_CONFIG_RELATIVE_PATH
         diagnostics.append(Diagnostic("Agentbox Kilo config", str(agentbox_config), "ok" if agentbox_config.exists() else "warning", None if agentbox_config.exists() else "run agentbox init to create it"))
         if host_env.get("KILO_CONFIG_DIR"):
@@ -185,7 +200,7 @@ def _home(host_env: Mapping[str, str]) -> Path:
 
 
 def _xdg_path(host_env: Mapping[str, str], name: str, fallback: Path) -> Path:
-    return Path(host_env.get(name, str(fallback))).expanduser()
+    return Path(host_env.get(name) or fallback).expanduser()
 
 
 def _settings(settings: object) -> KiloSettings:

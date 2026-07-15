@@ -214,6 +214,128 @@ user_email = "config@example.com"
 
             self.assertEqual(metadata.driver, "kilo")
 
+    def test_prepare_kilo_run_snapshots_host_model_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            state_home = Path(tmp) / "host-state"
+            source = state_home / "kilo" / "model.json"
+            source.parent.mkdir(parents=True)
+            source.write_text('{"model":"first"}\n')
+
+            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(state_home)}, clear=True):
+                run_dir, _ = cli.prepare_run(
+                    config, None, "ignore", "agentbox-kilo:test", driver_id="kilo"
+                )
+
+            destination = run_dir / "state" / "kilo" / "model.json"
+            self.assertEqual(destination.read_text(), '{"model":"first"}\n')
+            source.write_text('{"model":"changed"}\n')
+            self.assertEqual(destination.read_text(), '{"model":"first"}\n')
+
+    def test_prepare_kilo_run_skips_missing_model_and_dry_run_has_no_seed_effects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            state_home = Path(tmp) / "host-state"
+
+            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(state_home)}, clear=True):
+                run_dir, _ = cli.prepare_run(
+                    config, None, "ignore", "agentbox-kilo:test", driver_id="kilo"
+                )
+                dry_run_dir, _ = cli.prepare_run(
+                    config, None, "ignore", "agentbox-kilo:test", dry_run=True, driver_id="kilo"
+                )
+
+            self.assertFalse((run_dir / "state").exists())
+            self.assertFalse(dry_run_dir.exists())
+
+    def test_prepare_kilo_run_warns_and_continues_when_model_copy_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            source = Path(tmp) / "host-state" / "kilo" / "model.json"
+            source.parent.mkdir(parents=True)
+            source.write_text("model\n")
+            errors = io.StringIO()
+
+            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
+                with mock.patch("agentbox.cli.shutil.copyfileobj", side_effect=OSError("denied")):
+                    with contextlib.redirect_stderr(errors):
+                        run_dir, metadata = cli.prepare_run(
+                            config, None, "ignore", "agentbox-kilo:test", driver_id="kilo"
+                        )
+
+            self.assertTrue(Path(metadata.run_repo).is_dir())
+            self.assertFalse((run_dir / "state" / "kilo" / "model.json").exists())
+            self.assertIn("agentbox: warning: could not seed Kilo model selection", errors.getvalue())
+            self.assertIn(str(source), errors.getvalue())
+
+    def test_prepare_kilo_run_rejects_symlinked_host_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            secret = Path(tmp) / "secret"
+            secret.write_text("host secret\n")
+            source = Path(tmp) / "host-state" / "kilo" / "model.json"
+            source.parent.mkdir(parents=True)
+            source.symlink_to(secret)
+            errors = io.StringIO()
+
+            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
+                with contextlib.redirect_stderr(errors):
+                    run_dir, _ = cli.prepare_run(
+                        config, None, "ignore", "agentbox-kilo:test", driver_id="kilo"
+                    )
+
+            self.assertFalse((run_dir / "state" / "kilo" / "model.json").exists())
+            self.assertIn("agentbox: warning: could not seed Kilo model selection", errors.getvalue())
+
+    def test_codex_run_does_not_seed_kilo_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            source = Path(tmp) / "host-state" / "kilo" / "model.json"
+            source.parent.mkdir(parents=True)
+            source.write_text("model\n")
+
+            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
+                run_dir, _ = cli.prepare_run(config, None, "ignore", "agentbox-codex:test")
+
+            self.assertFalse((run_dir / "state").exists())
+
+    def test_saved_kilo_run_entry_does_not_reseed_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            run_dir = config.run_store / "kilo-run"
+            run_repo = run_dir / "repo"
+            run_repo.mkdir(parents=True)
+            destination = run_dir / "state" / "kilo" / "model.json"
+            destination.parent.mkdir(parents=True)
+            destination.write_text("run model\n")
+            source = Path(tmp) / "host-state" / "kilo" / "model.json"
+            source.parent.mkdir(parents=True)
+            source.write_text("host model\n")
+            runs.write_metadata(
+                run_dir,
+                runs.create_metadata("kilo-run", root, run_repo, "main", "0" * 40, "agentbox-kilo:test", driver="kilo"),
+            )
+
+            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
+                with self.quiet_output():
+                    status = cli.cmd_runs_enter(self.args(repo=root, run_id="kilo-run", dry_run=True))
+
+            self.assertEqual(status, 0)
+            self.assertEqual(destination.read_text(), "run model\n")
+            destination.unlink()
+            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
+                with self.quiet_output():
+                    status = cli.cmd_runs_enter(self.args(repo=root, run_id="kilo-run", dry_run=True))
+
+            self.assertEqual(status, 0)
+            self.assertFalse(destination.exists())
+
     def test_prepare_run_snapshots_managed_containerfile(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
@@ -442,6 +564,9 @@ user_email = "config@example.com"
             (config.run_store / "keep").mkdir(parents=True)
             (config.run_store / "keep" / "cache" / "kilo").mkdir(parents=True)
             (config.run_store / "keep" / "cache" / "kilo" / "probe").write_text("cached\n")
+            (config.run_store / "keep" / "state" / "kilo").mkdir(parents=True)
+            (config.run_store / "keep" / "state" / "kilo" / "model.json").write_text("model\n")
+            (config.run_store / "keep" / "state" / "kilo-sandbox-policy").mkdir()
 
             errors = io.StringIO()
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):

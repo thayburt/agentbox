@@ -33,6 +33,13 @@ class InitFileSpec:
 
 
 @dataclass(frozen=True)
+class RunSeedFileSpec:
+    source: Path
+    destination: Path
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class Diagnostic:
     name: str
     value: str
@@ -58,6 +65,10 @@ class HarnessDriver(Protocol):
     def run_state_mounts(
         self, settings: object, host_env: Mapping[str, str], run_dir: Path
     ) -> list[MountSpec]: ...
+
+    def run_seed_files(
+        self, settings: object, host_env: Mapping[str, str], run_dir: Path
+    ) -> list[RunSeedFileSpec]: ...
 
     def init_files(self, settings: object) -> list[InitFileSpec]: ...
 

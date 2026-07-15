@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec
+from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec, RunSeedFileSpec
 from ..template import render_template
 
 
@@ -70,6 +70,12 @@ class CodexDriver:
     def run_state_mounts(
         self, settings: object, host_env: Mapping[str, str], run_dir: Path
     ) -> list[MountSpec]:
+        del settings, host_env, run_dir
+        return []
+
+    def run_seed_files(
+        self, settings: object, host_env: Mapping[str, str], run_dir: Path
+    ) -> list[RunSeedFileSpec]:
         del settings, host_env, run_dir
         return []
 
