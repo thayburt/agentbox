@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import sys
 
+from agentbox.template import render_template
+
 from .config import CONFIG_FILE, Config, default_toml, load_config
 from .devcontainer import Devcontainer, load_devcontainer, shell_join
 from . import gitops
@@ -132,6 +134,14 @@ def cmd_init(args: argparse.Namespace) -> int:
     else:
         path.write_text(default_toml())
         print(f"created {path}")
+    agentbox_dir = root / ".agentbox"
+    agentbox_dir.mkdir(exist_ok=True)
+    gitignore_path = agentbox_dir / ".gitignore"
+    if gitignore_path.exists():
+        print(f"{gitignore_path} already exists")
+    else:
+        gitignore_path.write_text(render_template("gitignore", {}))
+        print(f"created {gitignore_path}")
     config = load_config(root)
     for driver in all_drivers():
         settings = config.driver_settings(driver.id)
