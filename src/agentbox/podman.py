@@ -59,7 +59,13 @@ def build_image(
     # A forced rebuild also refreshes the base image, since the content-addressed
     # tag cannot detect upstream base-image or install-script changes on its own.
     return build_tagged_image(
-        config, containerfile, image, dry_run=dry_run, force=force, pull_newer=force, driver_id=driver_id
+        config,
+        containerfile,
+        image,
+        dry_run=dry_run,
+        force=force,
+        pull_newer=force,
+        driver_id=driver_id,
     )
 
 
@@ -75,7 +81,9 @@ def build_tagged_image(
 ) -> list[str]:
     context = config.repo_root / ".agentbox"
     exists_cmd = ["podman", "image", "exists", image]
-    cmd = managed_build_command(config, image, containerfile, pull_newer=pull_newer, driver_id=driver_id)
+    cmd = managed_build_command(
+        config, image, containerfile, pull_newer=pull_newer, driver_id=driver_id
+    )
     if dry_run:
         print(shlex.join(exists_cmd))
         print(shlex.join(cmd))
@@ -116,7 +124,9 @@ def image_exists(image: str) -> bool:
     return result.returncode == 0
 
 
-def current_managed_image(config: Config, *, dry_run: bool = False, driver_id: str = "codex") -> str:
+def current_managed_image(
+    config: Config, *, dry_run: bool = False, driver_id: str = "codex"
+) -> str:
     path = ensure_harness_containerfile(config, driver_id=driver_id, dry_run=dry_run)
     if dry_run and not path.exists():
         digest = default_containerfile_digest(config, driver_id)

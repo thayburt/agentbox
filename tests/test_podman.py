@@ -105,9 +105,10 @@ class PodmanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
             podman.ensure_harness_containerfile(config)
-            with mock.patch("agentbox.podman.image_exists", return_value=True), mock.patch(
-                "agentbox.podman.subprocess.run"
-            ) as run:
+            with (
+                mock.patch("agentbox.podman.image_exists", return_value=True),
+                mock.patch("agentbox.podman.subprocess.run") as run,
+            ):
                 podman.build_image(config)
 
             run.assert_not_called()
@@ -116,9 +117,10 @@ class PodmanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
             podman.ensure_harness_containerfile(config)
-            with mock.patch("agentbox.podman.image_exists", return_value=False), mock.patch(
-                "agentbox.podman.subprocess.run"
-            ) as run:
+            with (
+                mock.patch("agentbox.podman.image_exists", return_value=False),
+                mock.patch("agentbox.podman.subprocess.run") as run,
+            ):
                 podman.build_image(config)
 
             cmd = run.call_args.args[0]
@@ -141,9 +143,10 @@ class PodmanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
             podman.ensure_harness_containerfile(config)
-            with mock.patch("agentbox.podman.image_exists", return_value=True), mock.patch(
-                "agentbox.podman.subprocess.run"
-            ) as run:
+            with (
+                mock.patch("agentbox.podman.image_exists", return_value=True),
+                mock.patch("agentbox.podman.subprocess.run") as run,
+            ):
                 podman.build_image(config, force=True)
 
             cmd = run.call_args.args[0]
@@ -174,11 +177,7 @@ class PodmanTests(unittest.TestCase):
             completed = subprocess.CompletedProcess(
                 args=[],
                 returncode=0,
-                stdout=(
-                    "agentbox-codex:same\n"
-                    "localhost/agentbox-kilo:same\n"
-                    "agentbox-kilo:other\n"
-                ),
+                stdout=("agentbox-codex:same\nlocalhost/agentbox-kilo:same\nagentbox-kilo:other\n"),
                 stderr="",
             )
             with mock.patch("agentbox.podman.run", return_value=completed):
@@ -255,7 +254,9 @@ class PodmanTests(unittest.TestCase):
             config_dir.mkdir(parents=True)
             driver = get_driver("kilo")
             mounts = driver.config_mounts(driver.default_settings({}), {"HOME": str(home)}, root)
-            global_mount = next(mount for mount in mounts if mount.target == "/home/ubuntu/.config/kilo")
+            global_mount = next(
+                mount for mount in mounts if mount.target == "/home/ubuntu/.config/kilo"
+            )
 
             self.assertTrue(global_mount.optional)
             self.assertTrue(global_mount.readonly)
@@ -303,12 +304,8 @@ class PodmanTests(unittest.TestCase):
             state = run_repo.parent / "state"
             self.assertFalse(cache.exists())
             self.assertFalse(state.exists())
-            self.assertIn(
-                f"{cache.resolve()}:/home/ubuntu/.cache:U", cmd
-            )
-            self.assertIn(
-                f"{state.resolve()}:/home/ubuntu/.local/state:U", cmd
-            )
+            self.assertIn(f"{cache.resolve()}:/home/ubuntu/.cache:U", cmd)
+            self.assertIn(f"{state.resolve()}:/home/ubuntu/.local/state:U", cmd)
 
     def test_kilo_run_state_mount_includes_selinux_suffix(self):
         with tempfile.TemporaryDirectory() as tmp:

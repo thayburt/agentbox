@@ -99,7 +99,9 @@ codex_home = "/tmp/codex-home"
             mounts = driver.state_mounts(driver.default_settings(host_env), host_env)
             diagnostics = driver.diagnostics(driver.default_settings(host_env), host_env, root)
 
-            self.assertFalse(any(mount.target.startswith("/home/ubuntu/.cache") for mount in mounts))
+            self.assertFalse(
+                any(mount.target.startswith("/home/ubuntu/.cache") for mount in mounts)
+            )
             self.assertFalse(any(mount.source == cache_home / "kilo" for mount in mounts))
             self.assertFalse(any(mount.source == state_home / "kilo" for mount in mounts))
             self.assertEqual(diagnostics[0].severity, "warning")
@@ -130,7 +132,9 @@ codex_home = "/tmp/codex-home"
 
             seeds = kilo.run_seed_files(kilo.default_settings(host_env), host_env, run_dir)
 
-            self.assertEqual(seeds[0].source, root / "home" / ".local" / "state" / "kilo" / "model.json")
+            self.assertEqual(
+                seeds[0].source, root / "home" / ".local" / "state" / "kilo" / "model.json"
+            )
 
     def test_kilo_missing_required_config_file_is_error(self):
         with tempfile.TemporaryDirectory() as tmp:

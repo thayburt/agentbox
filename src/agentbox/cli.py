@@ -118,7 +118,9 @@ def register_driver_commands(
     shell = harness_sub.add_parser("shell", help="Open a shell in an isolated run")
     shell.add_argument("--run", dest="run_id")
     shell.add_argument("--dry-run", action="store_true")
-    shell.add_argument("--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt")
+    shell.add_argument(
+        "--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt"
+    )
     shell.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
     shell.add_argument("--image", default=None)
     shell.add_argument("--git-user-name", default=None)
@@ -175,7 +177,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     ]
     for driver in all_drivers():
         checks.extend(
-            driver.diagnostics(config.driver_settings(driver.id), dict(os.environ), config.repo_root)
+            driver.diagnostics(
+                config.driver_settings(driver.id), dict(os.environ), config.repo_root
+            )
         )
     for diagnostic in checks:
         ok = ok and diagnostic.severity != "error"
@@ -188,9 +192,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def cmd_harness_build(args: argparse.Namespace) -> int:
     config = context(args)
     driver_id = selected_driver_id(args)
-    podman.build_image(
-        config, dry_run=args.dry_run, force=args.rebuild, driver_id=driver_id
-    )
+    podman.build_image(config, dry_run=args.dry_run, force=args.rebuild, driver_id=driver_id)
     return 0
 
 
@@ -319,7 +321,9 @@ def cmd_harness_shell(args: argparse.Namespace) -> int:
             git_user_name=args.git_user_name,
             git_user_email=args.git_user_email,
         )
-        image, managed_containerfile = resolve_run_image(config, args.image, args.dry_run, driver_id)
+        image, managed_containerfile = resolve_run_image(
+            config, args.image, args.dry_run, driver_id
+        )
         _, metadata = prepare_run(
             config,
             args.dirty,
@@ -619,7 +623,11 @@ def ensure_saved_run_image(config: Config, metadata: runs.RunMetadata, dry_run: 
     if dry_run:
         print(shlex.join(["podman", "image", "exists", image]))
         if snapshot:
-            print(shlex.join(podman.managed_build_command(config, image, snapshot, driver_id=metadata.driver)))
+            print(
+                shlex.join(
+                    podman.managed_build_command(config, image, snapshot, driver_id=metadata.driver)
+                )
+            )
         return
     if podman.image_exists(image):
         return

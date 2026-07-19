@@ -22,3 +22,8 @@ package = true
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.22",
+]

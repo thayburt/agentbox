@@ -26,7 +26,9 @@ class CodexDriver:
             codex_home=Path(host_env.get("CODEX_HOME", "~/.codex")).expanduser(),
         )
 
-    def load_settings(self, section: Mapping[str, object], host_env: Mapping[str, str]) -> CodexSettings:
+    def load_settings(
+        self, section: Mapping[str, object], host_env: Mapping[str, str]
+    ) -> CodexSettings:
         defaults = self.default_settings(host_env)
         codex_home = Path(str(section.get("codex_home", defaults.codex_home))).expanduser()
         return CodexSettings(

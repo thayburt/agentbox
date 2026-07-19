@@ -107,7 +107,9 @@ class CliRunPreparationTests(unittest.TestCase):
 
             self.assertEqual(status, 0)
             self.assertIn("host KILO_CONFIG=", errors.getvalue())
-            self.assertIn(f"{agentbox_config.resolve()}:/agentbox/config/kilo.jsonc:ro", output.getvalue())
+            self.assertIn(
+                f"{agentbox_config.resolve()}:/agentbox/config/kilo.jsonc:ro", output.getvalue()
+            )
             self.assertNotIn("/kilo-host/KILO_CONFIG", output.getvalue())
 
     def test_kilo_saved_run_enter_dry_run_uses_original_run_cache(self):
@@ -206,9 +208,7 @@ user_email = "config@example.com"
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
 
-            _, metadata = cli.prepare_run(
-                config, "ignore", "agentbox-kilo:test", driver_id="kilo"
-            )
+            _, metadata = cli.prepare_run(config, "ignore", "agentbox-kilo:test", driver_id="kilo")
 
             self.assertEqual(metadata.driver, "kilo")
 
@@ -257,7 +257,9 @@ user_email = "config@example.com"
             source.write_text("model\n")
             errors = io.StringIO()
 
-            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
+            with mock.patch.dict(
+                "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
+            ):
                 with mock.patch("agentbox.cli.shutil.copyfileobj", side_effect=OSError("denied")):
                     with contextlib.redirect_stderr(errors):
                         run_dir, metadata = cli.prepare_run(
@@ -266,7 +268,9 @@ user_email = "config@example.com"
 
             self.assertTrue(Path(metadata.run_repo).is_dir())
             self.assertFalse((run_dir / "state" / "kilo" / "model.json").exists())
-            self.assertIn("agentbox: warning: could not seed Kilo model selection", errors.getvalue())
+            self.assertIn(
+                "agentbox: warning: could not seed Kilo model selection", errors.getvalue()
+            )
             self.assertIn(str(source), errors.getvalue())
 
     def test_prepare_kilo_run_rejects_symlinked_host_model(self):
@@ -280,14 +284,18 @@ user_email = "config@example.com"
             source.symlink_to(secret)
             errors = io.StringIO()
 
-            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
+            with mock.patch.dict(
+                "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
+            ):
                 with contextlib.redirect_stderr(errors):
                     run_dir, _ = cli.prepare_run(
                         config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                     )
 
             self.assertFalse((run_dir / "state" / "kilo" / "model.json").exists())
-            self.assertIn("agentbox: warning: could not seed Kilo model selection", errors.getvalue())
+            self.assertIn(
+                "agentbox: warning: could not seed Kilo model selection", errors.getvalue()
+            )
 
     def test_codex_run_does_not_seed_kilo_model(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -297,7 +305,9 @@ user_email = "config@example.com"
             source.parent.mkdir(parents=True)
             source.write_text("model\n")
 
-            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
+            with mock.patch.dict(
+                "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
+            ):
                 run_dir, _ = cli.prepare_run(config, "ignore", "agentbox-codex:test")
 
             self.assertFalse((run_dir / "state").exists())
@@ -317,19 +327,35 @@ user_email = "config@example.com"
             source.write_text("host model\n")
             runs.write_metadata(
                 run_dir,
-                runs.create_metadata("kilo-run", root, run_repo, "main", "0" * 40, "agentbox-kilo:test", driver="kilo"),
+                runs.create_metadata(
+                    "kilo-run",
+                    root,
+                    run_repo,
+                    "main",
+                    "0" * 40,
+                    "agentbox-kilo:test",
+                    driver="kilo",
+                ),
             )
 
-            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
+            with mock.patch.dict(
+                "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
+            ):
                 with self.quiet_output():
-                    status = cli.cmd_runs_enter(self.args(repo=root, run_id="kilo-run", dry_run=True))
+                    status = cli.cmd_runs_enter(
+                        self.args(repo=root, run_id="kilo-run", dry_run=True)
+                    )
 
             self.assertEqual(status, 0)
             self.assertEqual(destination.read_text(), "run model\n")
             destination.unlink()
-            with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True):
+            with mock.patch.dict(
+                "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
+            ):
                 with self.quiet_output():
-                    status = cli.cmd_runs_enter(self.args(repo=root, run_id="kilo-run", dry_run=True))
+                    status = cli.cmd_runs_enter(
+                        self.args(repo=root, run_id="kilo-run", dry_run=True)
+                    )
 
             self.assertEqual(status, 0)
             self.assertFalse(destination.exists())
@@ -650,9 +676,7 @@ sign_imports = true
     def init_repo(self, root: Path) -> Path:
         return helpers.init_repo(root, name="Host User", email="host@example.com")
 
-    def create_committed_run(
-        self, root: Path, run_id: str
-    ) -> tuple[Path, runs.RunMetadata]:
+    def create_committed_run(self, root: Path, run_id: str) -> tuple[Path, runs.RunMetadata]:
         config = load_config(root)
         state = gitops.repo_state(root)
         run_dir = config.run_store / run_id

@@ -9,8 +9,10 @@ _TOKEN = re.compile(r"@@([A-Z][A-Z0-9_]*)@@")
 
 
 def read_template(resource_name: str) -> str:
-    return files("agentbox").joinpath("templates", *resource_name.split("/")).read_text(
-        encoding="utf-8"
+    return (
+        files("agentbox")
+        .joinpath("templates", *resource_name.split("/"))
+        .read_text(encoding="utf-8")
     )
 
 
