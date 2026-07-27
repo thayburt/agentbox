@@ -21,7 +21,7 @@ RUN apt-get update \
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
 
-RUN npm install -g @kilocode/cli \
+RUN npm install -g @kilocode/cli@7.4.11 \
     && kilo --version
 
 USER ubuntu
