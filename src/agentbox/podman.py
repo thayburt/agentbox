@@ -293,6 +293,8 @@ def render_run_command(
         "--rm",
         "-it",
         "--userns=keep-id",
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
         "--workdir",
         workspace,
         "-v",

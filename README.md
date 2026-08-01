@@ -49,6 +49,12 @@ workspace mounts, image management, and run lifecycle behavior centrally. Codex
 uses `CODEX_HOME=/codex-home`, preferring the host `CODEX_HOME` environment
 variable when set, otherwise `~/.codex`.
 
+Containers run with `--cap-drop=ALL` and
+`--security-opt=no-new-privileges`, and the managed images do not include
+`sudo`. Network access remains unrestricted because harnesses require API and
+package access. The isolation boundary is the unmounted host checkout together
+with rootless `--userns=keep-id`, not network isolation.
+
 ## Run Harnesses
 
 ```bash

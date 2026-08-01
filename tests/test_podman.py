@@ -44,6 +44,22 @@ class PodmanTests(unittest.TestCase):
             self.assertIn(f"{run_repo.resolve()}:/workspace", cmd)
             self.assertNotIn(str(root) + ":/workspace", cmd)
 
+    def test_render_run_command_hardens_container(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+
+            cmd = render_run_command(
+                config=self.config(root),
+                image="agentbox-codex:test",
+                run_repo=run_repo,
+                command="exec bash",
+            )
+
+            self.assertIn("--cap-drop=ALL", cmd)
+            self.assertIn("--security-opt=no-new-privileges", cmd)
+
     def test_volume_suffix(self):
         self.assertEqual(volume_suffix("disabled"), "")
         self.assertEqual(volume_suffix("z"), ":z")
