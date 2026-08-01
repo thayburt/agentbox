@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from agentbox import cli, gitops, runs
+from agentbox import cli, gitops, lifecycle, podman, runs, seed
 from agentbox.config import load_config
 from agentbox.drivers import get_driver
 from agentbox.template import read_template
@@ -106,7 +106,7 @@ class CliRunPreparationTests(unittest.TestCase):
 
             with mock.patch.dict("os.environ", {"KILO_CONFIG": str(host_config)}, clear=True):
                 with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
-                    status = cli.run_container(
+                    status = lifecycle.run_container(
                         config,
                         "agentbox-kilo:test",
                         root / ".agentbox" / "runs" / "dry" / "repo",
@@ -157,7 +157,7 @@ class CliRunPreparationTests(unittest.TestCase):
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
 
-            _, metadata = cli.prepare_run(
+            _, metadata = lifecycle.prepare_run(
                 config, "ignore", "agentbox-codex:test", driver_id="codex"
             )
 
@@ -188,7 +188,7 @@ user_email = "config@example.com"
             git(root, "commit", "-m", "add config")
             config = load_config(root)
 
-            _, metadata = cli.prepare_run(
+            _, metadata = lifecycle.prepare_run(
                 config,
                 "ignore",
                 "agentbox-codex:test",
@@ -212,7 +212,7 @@ user_email = "config@example.com"
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
 
-            _, metadata = cli.prepare_run(
+            _, metadata = lifecycle.prepare_run(
                 config, "ignore", "custom/image:tag", driver_id="codex"
             )
 
@@ -225,7 +225,9 @@ user_email = "config@example.com"
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
 
-            _, metadata = cli.prepare_run(config, "ignore", "agentbox-kilo:test", driver_id="kilo")
+            _, metadata = lifecycle.prepare_run(
+                config, "ignore", "agentbox-kilo:test", driver_id="kilo"
+            )
 
             self.assertEqual(metadata.driver, "kilo")
 
@@ -239,7 +241,7 @@ user_email = "config@example.com"
             source.write_text('{"model":"first"}\n')
 
             with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(state_home)}, clear=True):
-                run_dir, _ = cli.prepare_run(
+                run_dir, _ = lifecycle.prepare_run(
                     config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                 )
 
@@ -255,10 +257,10 @@ user_email = "config@example.com"
             state_home = Path(tmp) / "host-state"
 
             with mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(state_home)}, clear=True):
-                run_dir, _ = cli.prepare_run(
+                run_dir, _ = lifecycle.prepare_run(
                     config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                 )
-                dry_run_dir, _ = cli.prepare_run(
+                dry_run_dir, _ = lifecycle.prepare_run(
                     config, "ignore", "agentbox-kilo:test", dry_run=True, driver_id="kilo"
                 )
 
@@ -277,9 +279,11 @@ user_email = "config@example.com"
             with mock.patch.dict(
                 "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
             ):
-                with mock.patch("agentbox.cli.shutil.copyfileobj", side_effect=OSError("denied")):
+                with mock.patch.object(
+                    seed.shutil, "copyfileobj", side_effect=OSError("denied")
+                ):
                     with contextlib.redirect_stderr(errors):
-                        run_dir, metadata = cli.prepare_run(
+                        run_dir, metadata = lifecycle.prepare_run(
                             config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                         )
 
@@ -305,7 +309,7 @@ user_email = "config@example.com"
                 "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
             ):
                 with contextlib.redirect_stderr(errors):
-                    run_dir, _ = cli.prepare_run(
+                    run_dir, _ = lifecycle.prepare_run(
                         config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                     )
 
@@ -325,7 +329,7 @@ user_email = "config@example.com"
             with mock.patch.dict(
                 "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
             ):
-                run_dir, _ = cli.prepare_run(
+                run_dir, _ = lifecycle.prepare_run(
                     config, "ignore", "agentbox-codex:test", driver_id="codex"
                 )
 
@@ -386,9 +390,9 @@ user_email = "config@example.com"
             with mock.patch(
                 "agentbox.podman.resolve_pinned_base_image", side_effect=lambda ref: ref
             ):
-                containerfile = cli.podman.ensure_harness_containerfile(config, driver_id="codex")
+                containerfile = podman.ensure_harness_containerfile(config, driver_id="codex")
 
-            run_dir, metadata = cli.prepare_run(
+            run_dir, metadata = lifecycle.prepare_run(
                 config,
                 "ignore",
                 "agentbox-codex:test",
@@ -416,7 +420,7 @@ user_email = "config@example.com"
                 sign_imports=None,
             )
 
-            with mock.patch("agentbox.cli.podman.ensure_managed_image") as ensure:
+            with mock.patch("agentbox.lifecycle.podman.ensure_managed_image") as ensure:
                 with self.quiet_output():
                     status = cli.cmd_harness_run(args)
 
@@ -439,7 +443,8 @@ user_email = "config@example.com"
             )
 
             with mock.patch(
-                "agentbox.cli.podman.ensure_managed_image", return_value="agentbox-codex:test"
+                "agentbox.lifecycle.podman.ensure_managed_image",
+                return_value="agentbox-codex:test",
             ) as ensure:
                 with self.quiet_output():
                     status = cli.cmd_harness_run(args)
@@ -463,7 +468,7 @@ user_email = "config@example.com"
                 driver_id="kilo",
             )
 
-            with mock.patch("agentbox.cli.podman.ensure_managed_image") as ensure:
+            with mock.patch("agentbox.lifecycle.podman.ensure_managed_image") as ensure:
                 with self.quiet_output():
                     status = cli.cmd_harness_run(args)
 
@@ -486,7 +491,7 @@ user_email = "config@example.com"
                 sign_imports=None,
             )
 
-            with mock.patch("agentbox.cli.podman.ensure_managed_image") as ensure:
+            with mock.patch("agentbox.lifecycle.podman.ensure_managed_image") as ensure:
                 with self.assertRaisesRegex(RuntimeError, "working tree is dirty"):
                     cli.cmd_harness_run(args)
 
@@ -512,7 +517,7 @@ user_email = "config@example.com"
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                cli.ensure_saved_run_image(config, metadata, dry_run=True)
+                lifecycle.ensure_saved_run_image(config, metadata, dry_run=True)
 
             text = output.getvalue()
             self.assertIn("podman image exists", text)
@@ -564,7 +569,7 @@ user_email = "config@example.com"
             )
 
             self.assertEqual(
-                cli.referenced_image_refs(config, driver_id="kilo"),
+                lifecycle.referenced_image_refs(config, driver_id="kilo"),
                 {"agentbox-kilo:same"},
             )
 
@@ -582,9 +587,9 @@ user_email = "config@example.com"
                 driver="codex",
             )
 
-            with mock.patch("agentbox.cli.podman.image_exists", return_value=False):
+            with mock.patch("agentbox.lifecycle.podman.image_exists", return_value=False):
                 with self.assertRaisesRegex(RuntimeError, "no Containerfile snapshot"):
-                    cli.ensure_saved_run_image(config, metadata, dry_run=False)
+                    lifecycle.ensure_saved_run_image(config, metadata, dry_run=False)
 
     def test_runs_enter_image_override_skips_image_check(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -606,7 +611,7 @@ user_email = "config@example.com"
             output = io.StringIO()
 
             with mock.patch(
-                "agentbox.cli.podman.image_exists", return_value=False
+                "agentbox.lifecycle.podman.image_exists", return_value=False
             ) as image_exists:
                 with contextlib.redirect_stdout(output):
                     status = cli.cmd_runs_enter(
@@ -641,7 +646,7 @@ user_email = "config@example.com"
             runs.write_metadata(run_dir, metadata)
             output = io.StringIO()
 
-            with mock.patch("agentbox.cli.podman.image_exists", return_value=False):
+            with mock.patch("agentbox.lifecycle.podman.image_exists", return_value=False):
                 with contextlib.redirect_stdout(output):
                     status = cli.cmd_harness_shell(
                         self.args(
@@ -793,7 +798,7 @@ sign_imports = true
             original_head = gitops.current_head(root)
 
             with self.quiet_output():
-                status = cli.complete_run(config, metadata, "ff-only")
+                status = lifecycle.complete_run(config, metadata, "ff-only")
 
             self.assertEqual(status, 2)
             self.assertEqual(gitops.current_head(root), original_head)
