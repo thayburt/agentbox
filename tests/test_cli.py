@@ -279,9 +279,7 @@ user_email = "config@example.com"
             with mock.patch.dict(
                 "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
             ):
-                with mock.patch.object(
-                    seed.shutil, "copyfileobj", side_effect=OSError("denied")
-                ):
+                with mock.patch.object(seed.shutil, "copyfileobj", side_effect=OSError("denied")):
                     with contextlib.redirect_stderr(errors):
                         run_dir, metadata = lifecycle.prepare_run(
                             config, "ignore", "agentbox-kilo:test", driver_id="kilo"
@@ -726,9 +724,7 @@ user_email = "config@example.com"
             errors = io.StringIO()
 
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
-                status = cli.cmd_runs_prune(
-                    self.args(repo=root, all=False, run_id=["linked"])
-                )
+                status = cli.cmd_runs_prune(self.args(repo=root, all=False, run_id=["linked"]))
 
             self.assertEqual(status, 2)
             self.assertIn("invalid run id: linked", errors.getvalue())

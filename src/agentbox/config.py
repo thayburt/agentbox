@@ -35,6 +35,7 @@ class Config:
             get_driver(canonical)
             raise RuntimeError(f"missing settings for driver: {canonical}") from exc
 
+
 def default_toml() -> str:
     driver_sections = "\n".join(
         driver.default_toml_section(os.environ).rstrip() for driver in all_drivers()

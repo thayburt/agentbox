@@ -132,9 +132,7 @@ def image_exists(image: str) -> bool:
     return result.returncode == 0
 
 
-def current_managed_image(
-    config: Config, *, dry_run: bool = False, driver_id: str
-) -> str:
+def current_managed_image(config: Config, *, dry_run: bool = False, driver_id: str) -> str:
     path = ensure_harness_containerfile(config, driver_id=driver_id, dry_run=dry_run)
     if dry_run and not path.exists():
         settings = config.driver_settings(driver_id)
@@ -201,9 +199,7 @@ def remove_image(image: str) -> None:
     subprocess.run(["podman", "rmi", image], check=True)
 
 
-def ensure_harness_containerfile(
-    config: Config, *, driver_id: str, dry_run: bool = False
-) -> Path:
+def ensure_harness_containerfile(config: Config, *, driver_id: str, dry_run: bool = False) -> Path:
     driver = get_driver(driver_id)
     path = harness_containerfile_path(config, driver_id=driver.id)
     if path.exists():

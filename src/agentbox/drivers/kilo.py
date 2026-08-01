@@ -238,9 +238,7 @@ class KiloDriver:
         _settings(settings)
         mounts = self.state_mounts(settings, host_env)
         normal_paths = [
-            mount.source
-            for mount in mounts
-            if mount.description == KILO_DATA_MOUNT_DESCRIPTION
+            mount.source for mount in mounts if mount.description == KILO_DATA_MOUNT_DESCRIPTION
         ]
         exists = any(path.exists() for path in normal_paths)
         severity = "ok" if exists else "warning"
