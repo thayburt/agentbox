@@ -1,5 +1,8 @@
 from dataclasses import replace
 from pathlib import Path
+import contextlib
+import io
+import json
 import subprocess
 import tempfile
 import unittest
@@ -12,6 +15,16 @@ from agentbox.podman import render_run_command, volume_suffix
 
 
 class PodmanTests(unittest.TestCase):
+    def setUp(self):
+        # Tests in this class materialize Containerfiles; keep real digest
+        # resolution (and podman itself) out of them by treating every base
+        # image reference as already resolved.
+        patcher = mock.patch(
+            "agentbox.podman.resolve_pinned_base_image", side_effect=lambda ref: ref
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_render_run_command_mounts_clone_and_codex_home(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -287,6 +300,19 @@ class PodmanTests(unittest.TestCase):
 
             self.assertTrue(config.codex_home.is_dir())
 
+    def test_dry_run_reports_base_image_tag_and_defers_managed_image_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.config(root)
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                image = podman.current_managed_image(config, dry_run=True, driver_id="codex")
+
+            self.assertEqual(image, "agentbox-codex:<containerfile-digest>")
+            self.assertIn("base image 'ubuntu:24.04'", stdout.getvalue())
+            self.assertFalse(podman.harness_containerfile_path(config, driver_id="codex").exists())
+
     def test_kilo_run_state_mount_renders_before_its_source_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -430,6 +456,145 @@ class PodmanTests(unittest.TestCase):
             harnesses={
                 "codex": codex_settings,
                 "kilo": get_driver("kilo").default_settings({}),
+            },
+        )
+
+
+class BaseImagePinningTests(unittest.TestCase):
+    INSTANCE_DIGEST = "sha256:" + "1" * 64
+    LIST_DIGEST = "sha256:" + "2" * 64
+
+    def test_prepinned_references_are_used_verbatim(self):
+        references = (
+            f"ubuntu:24.04@{self.LIST_DIGEST}",
+            f"registry.example.com/library/ubuntu@{self.LIST_DIGEST}",
+        )
+        with mock.patch("agentbox.podman.run") as run_mock:
+            for reference in references:
+                with self.subTest(reference=reference):
+                    self.assertEqual(podman.resolve_pinned_base_image(reference), reference)
+        run_mock.assert_not_called()
+
+    def test_prefers_manifest_list_digest_over_instance_digest(self):
+        payload = [
+            {
+                "Digest": self.INSTANCE_DIGEST,
+                "RepoDigests": [
+                    f"docker.io/library/ubuntu@{self.LIST_DIGEST}",
+                    f"docker.io/library/ubuntu@{self.INSTANCE_DIGEST}",
+                ],
+            }
+        ]
+        with mock.patch("agentbox.podman.run", side_effect=self.fake_run(payload)) as run_mock:
+            resolved = self.resolve("ubuntu:24.04")
+
+        self.assertEqual(resolved, f"ubuntu:24.04@{self.LIST_DIGEST}")
+        self.assertEqual(run_mock.call_args_list[0].args[0], ["podman", "pull", "ubuntu:24.04"])
+
+    def test_single_arch_image_uses_its_manifest_digest(self):
+        payload = [
+            {
+                "Digest": self.INSTANCE_DIGEST,
+                "RepoDigests": [f"docker.io/library/ubuntu@{self.INSTANCE_DIGEST}"],
+            }
+        ]
+        with mock.patch("agentbox.podman.run", side_effect=self.fake_run(payload)):
+            resolved = self.resolve("ubuntu:24.04")
+
+        self.assertEqual(resolved, f"ubuntu:24.04@{self.INSTANCE_DIGEST}")
+
+    def test_failed_pull_still_pins_from_local_image(self):
+        payload = [
+            {
+                "Digest": self.INSTANCE_DIGEST,
+                "RepoDigests": [f"docker.io/library/ubuntu@{self.INSTANCE_DIGEST}"],
+            }
+        ]
+        with mock.patch("agentbox.podman.run", side_effect=self.fake_run(payload, pull_rc=1)):
+            resolved = self.resolve("ubuntu:24.04")
+
+        self.assertEqual(resolved, f"ubuntu:24.04@{self.INSTANCE_DIGEST}")
+
+    def test_locally_built_image_yields_no_pin(self):
+        payload = [{"Digest": self.INSTANCE_DIGEST, "RepoDigests": []}]
+        with mock.patch("agentbox.podman.run", side_effect=self.fake_run(payload, pull_rc=1)):
+            self.assertIsNone(self.resolve("localhost/custom-base:dev"))
+
+    def test_uninspectable_image_yields_no_pin(self):
+        with mock.patch("agentbox.podman.run", side_effect=self.fake_run([], inspect_rc=1)):
+            self.assertIsNone(self.resolve("example.com/missing:latest"))
+
+    def test_ambiguous_inspect_result_yields_no_pin(self):
+        payload = [
+            {"RepoDigests": [f"docker.io/library/ubuntu@{self.LIST_DIGEST}"]},
+            {"RepoDigests": [f"docker.io/library/ubuntu@{self.INSTANCE_DIGEST}"]},
+        ]
+        with mock.patch("agentbox.podman.run", side_effect=self.fake_run(payload)):
+            self.assertIsNone(self.resolve("ubuntu"))
+
+    def test_malformed_digest_yields_no_pin(self):
+        payload = [{"Digest": "<missing>", "RepoDigests": ["docker.io/library/ubuntu@<missing>"]}]
+        with mock.patch("agentbox.podman.run", side_effect=self.fake_run(payload)):
+            self.assertIsNone(self.resolve("ubuntu:24.04"))
+
+    def test_materialized_containerfile_contains_pinned_from_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            with mock.patch(
+                "agentbox.podman.resolve_pinned_base_image",
+                return_value=f"ubuntu:24.04@{self.LIST_DIGEST}",
+            ):
+                path = podman.ensure_harness_containerfile(config, driver_id="codex")
+
+            self.assertEqual(
+                path.read_text().splitlines()[0],
+                f"FROM ubuntu:24.04@{self.LIST_DIGEST}",
+            )
+
+    def test_materialized_containerfile_falls_back_unpinned_with_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(Path(tmp))
+            stderr = io.StringIO()
+            with (
+                mock.patch("agentbox.podman.resolve_pinned_base_image", return_value=None),
+                contextlib.redirect_stderr(stderr),
+            ):
+                path = podman.ensure_harness_containerfile(config, driver_id="codex")
+
+            self.assertEqual(path.read_text().splitlines()[0], "FROM ubuntu:24.04")
+            self.assertIn("ubuntu:24.04", stderr.getvalue())
+            self.assertIn("unpinned", stderr.getvalue())
+
+    @staticmethod
+    def fake_run(inspect_payload, *, inspect_rc=0, pull_rc=0):
+        def fake(args, check=True):
+            if args[:3] == ["podman", "image", "inspect"]:
+                stdout = json.dumps(inspect_payload) if inspect_rc == 0 else ""
+                return subprocess.CompletedProcess(args, inspect_rc, stdout=stdout, stderr="")
+            return subprocess.CompletedProcess(args, pull_rc, stdout="", stderr="")
+
+        return fake
+
+    @staticmethod
+    def resolve(base_image: str) -> str | None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return podman.resolve_pinned_base_image(base_image)
+
+    def config(self, root: Path) -> Config:
+        return Config(
+            repo_root=root,
+            run_store=root / "runs",
+            selinux="disabled",
+            git_user_name=None,
+            git_user_email=None,
+            sign_imports=False,
+            harnesses={
+                "codex": CodexSettings(
+                    image_name="agentbox-codex",
+                    base_image="ubuntu:24.04",
+                    codex_home=root / "codex-home",
+                    workspace_folder="/workspace",
+                ),
             },
         )
 

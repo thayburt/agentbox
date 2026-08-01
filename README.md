@@ -29,6 +29,13 @@ when it already exists:
 
 Each Containerfile is the mutable local definition of its managed harness image.
 Edit one when you need a custom base image or additional tools for that harness.
+When a Containerfile is first generated, agentbox pins the configured
+`base_image` by digest: the tag is pulled and the FROM line is recorded as
+`ubuntu:24.04@sha256:<digest>` (the manifest-list digest, so the pin stays
+usable across architectures). A `base_image` that already carries a digest is
+used verbatim. If no registry digest can be resolved (for example offline, or
+a locally built base image), the Containerfile is written unpinned with a
+warning.
 
 Run tests with:
 
@@ -80,13 +87,19 @@ uv run agentbox kilo prune
 ```
 
 `prune` keeps the current managed image and any image referenced by a saved run.
-Force a rebuild that also refreshes the base image (for security updates or a
-newer harness install) with:
+Managed images pin the base image by digest (resolved when the Containerfile is
+generated) and harness tools by version. The pin does not move when the
+registry tag is updated; to refresh a dependency, intentionally edit its
+version or digest — or delete the Containerfile to have it regenerated with a
+fresh digest — and rebuild with:
 
 ```bash
 uv run agentbox codex build --rebuild
 uv run agentbox kilo build --rebuild
 ```
+
+The build's `--pull=newer` behavior cannot refresh a digest-pinned base image;
+the pinned digest must be updated first.
 
 Pass `--image IMAGE` to bypass the managed Containerfile image entirely:
 

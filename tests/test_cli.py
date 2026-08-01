@@ -53,8 +53,13 @@ class CliRunPreparationTests(unittest.TestCase):
             root = self.init_repo(Path(tmp) / "repo")
             args = self.args(repo=root)
 
-            with self.quiet_output():
-                status = cli.cmd_init(args)
+            # Digest resolution runs podman; keep init tests offline by
+            # treating every base image reference as already resolved.
+            with mock.patch(
+                "agentbox.podman.resolve_pinned_base_image", side_effect=lambda ref: ref
+            ):
+                with self.quiet_output():
+                    status = cli.cmd_init(args)
 
             containerfile = root / ".agentbox" / "codex" / "Containerfile"
             kilo_containerfile = root / ".agentbox" / "kilo" / "Containerfile"
@@ -75,8 +80,11 @@ class CliRunPreparationTests(unittest.TestCase):
             containerfile.write_text("custom\n")
             kilo_containerfile.write_text("custom kilo\n")
             kilo_config.write_text("custom\n")
-            with self.quiet_output():
-                cli.cmd_init(args)
+            with mock.patch(
+                "agentbox.podman.resolve_pinned_base_image", side_effect=lambda ref: ref
+            ):
+                with self.quiet_output():
+                    cli.cmd_init(args)
 
             self.assertEqual(containerfile.read_text(), "custom\n")
             self.assertEqual(kilo_containerfile.read_text(), "custom kilo\n")
@@ -364,7 +372,10 @@ user_email = "config@example.com"
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
-            containerfile = cli.podman.ensure_harness_containerfile(config)
+            with mock.patch(
+                "agentbox.podman.resolve_pinned_base_image", side_effect=lambda ref: ref
+            ):
+                containerfile = cli.podman.ensure_harness_containerfile(config)
 
             run_dir, metadata = cli.prepare_run(
                 config,

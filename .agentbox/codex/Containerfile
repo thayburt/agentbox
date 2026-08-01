@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CODEX_NON_INTERACTIVE=1
@@ -18,7 +18,9 @@ RUN apt-get update \
         sudo \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
+RUN curl -LsSf https://astral.sh/uv/0.12.1/install.sh | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
+
+ENV CODEX_RELEASE=0.146.0
 
 RUN mkdir -p /opt/codex-install \
     && curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_HOME=/opt/codex-install CODEX_NON_INTERACTIVE=1 CODEX_INSTALL_DIR=/usr/local/bin sh

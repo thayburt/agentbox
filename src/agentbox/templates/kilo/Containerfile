@@ -14,11 +14,14 @@ RUN apt-get update \
         npm \
         openssh-client \
         python3 \
+        python-is-python3 \
         ripgrep \
         sudo \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @kilocode/cli \
+RUN curl -LsSf https://astral.sh/uv/0.12.1/install.sh | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
+
+RUN npm install -g @kilocode/cli@7.4.17 \
     && kilo --version
 
 USER ubuntu

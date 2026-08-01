@@ -9,6 +9,21 @@ from agentbox.template import read_template, render_template
 
 
 class TemplateTests(unittest.TestCase):
+    def test_default_containerfiles_pin_harness_tool_versions(self):
+        # The base image stays an unpinned tag here: agentbox resolves and
+        # records its digest when the Containerfile is materialized, not in
+        # the packaged default.
+        codex = get_driver("codex")
+        kilo = get_driver("kilo")
+        codex_text = codex.default_containerfile(codex.default_settings({}))
+        kilo_text = kilo.default_containerfile(kilo.default_settings({}))
+
+        for text in (codex_text, kilo_text):
+            self.assertTrue(text.startswith("FROM ubuntu:24.04\n"))
+            self.assertRegex(text, r"astral\.sh/uv/\d+\.\d+\.\d+/install\.sh")
+        self.assertRegex(codex_text, r"CODEX_RELEASE=\d+\.\d+\.\d+")
+        self.assertRegex(kilo_text, r"@kilocode/cli@\d+\.\d+\.\d+")
+
     def test_containerfiles_render_non_default_base_images_without_tokens(self):
         cases = (
             ("codex", CodexSettings("custom-codex", "example/codex:latest", "/work", "/codex")),

@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import dataclasses
+import json
 from pathlib import Path
 import hashlib
+import posixpath
+import re
 import shlex
 import subprocess
+import sys
 
 from .config import Config
 from .drivers import MountSpec, get_driver
+
+
+_BASE_IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_DRY_RUN_IMAGE_TAG = "<containerfile-digest>"
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -129,7 +138,8 @@ def current_managed_image(
 ) -> str:
     path = ensure_harness_containerfile(config, driver_id=driver_id, dry_run=dry_run)
     if dry_run and not path.exists():
-        digest = default_containerfile_digest(config, driver_id)
+        settings = config.driver_settings(driver_id)
+        return f"{settings.image_name}:{_DRY_RUN_IMAGE_TAG}"
     else:
         digest = containerfile_digest(path)
     return harness_image_name(config, digest, driver_id)
@@ -200,22 +210,65 @@ def ensure_harness_containerfile(
     if path.exists():
         return path
     if dry_run:
-        print(f"would create {path}")
+        settings = config.driver_settings(driver.id)
+        print(f"would create {path} with base image {settings.base_image!r}")
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(driver.default_containerfile(config.driver_settings(driver.id)))
+    settings = config.driver_settings(driver.id)
+    pinned = resolve_pinned_base_image(settings.base_image)
+    if pinned is None:
+        print(
+            "agentbox: warning: could not resolve a registry digest for base image "
+            f"{settings.base_image!r}; writing an unpinned Containerfile",
+            file=sys.stderr,
+        )
+    else:
+        settings = dataclasses.replace(settings, base_image=pinned)
+    path.write_text(driver.default_containerfile(settings))
     return path
+
+
+def resolve_pinned_base_image(base_image: str) -> str | None:
+    """Resolve a base image reference to a digest-pinned reference.
+
+    References that already carry a digest (``name@sha256:...`` or
+    ``name:tag@sha256:...``) are returned unchanged. Otherwise the image is
+    pulled (best effort) and inspected locally; the manifest-list digest from
+    ``RepoDigests`` is preferred over the host-specific manifest digest in
+    ``Digest`` so the pinned reference keeps working on other architectures.
+    Returns None when no registry digest can be determined, e.g. for
+    unresolvable or locally built images.
+    """
+    if "@" in base_image:
+        return base_image
+    print(f"agentbox: resolving registry digest for base image {base_image!r}", file=sys.stderr)
+    run(["podman", "pull", base_image], check=False)
+    result = run(["podman", "image", "inspect", base_image], check=False)
+    if result.returncode != 0:
+        return None
+    try:
+        images = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(images, list) or len(images) != 1 or not isinstance(images[0], dict):
+        return None
+    info = images[0]
+    instance_digest = info.get("Digest")
+    repo_digests = [
+        entry.rsplit("@", 1)[-1] for entry in info.get("RepoDigests") or [] if "@" in entry
+    ]
+    # Pulling through a manifest list records both the list digest and the
+    # selected instance digest; only registry-sourced digests are usable in a
+    # FROM line, so locally built images (no RepoDigests) yield no pin.
+    candidates = [digest for digest in repo_digests if digest != instance_digest] or repo_digests
+    for candidate in candidates:
+        if _BASE_IMAGE_DIGEST.match(candidate):
+            return f"{base_image}@{candidate}"
+    return None
 
 
 def containerfile_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def default_containerfile_digest(config: Config, driver_id: str = "codex") -> str:
-    driver = get_driver(driver_id)
-    return hashlib.sha256(
-        driver.default_containerfile(config.driver_settings(driver.id)).encode()
-    ).hexdigest()
 
 
 def render_run_command(
