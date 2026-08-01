@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import tempfile
 import unittest
 
@@ -104,6 +105,80 @@ class GitOpsTests(unittest.TestCase):
 
             self.assertFalse((run_repo / "old.txt").exists())
             self.assertEqual((run_repo / "new.txt").read_text(), "hello\nworld\n")
+
+    def test_clone_include_dirty_preserves_file_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = init_repo(Path(tmp) / "repo")
+            sentinel = Path(tmp) / "sentinel.txt"
+            sentinel.write_text("secret\n")
+            (root / "link.txt").symlink_to(sentinel)
+
+            run_repo = Path(tmp) / "run" / "repo"
+            gitops.clone_repo(root, run_repo, include_dirty=True)
+
+            copied = run_repo / "link.txt"
+            self.assertTrue(copied.is_symlink())
+            self.assertEqual(os.readlink(copied), str(sentinel))
+            self.assertEqual(sentinel.read_text(), "secret\n")
+
+    def test_clone_include_dirty_preserves_directory_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = init_repo(Path(tmp) / "repo")
+            sentinel_dir = Path(tmp) / "sentinel-dir"
+            sentinel_dir.mkdir()
+            (sentinel_dir / "secret.txt").write_text("secret\n")
+            (root / "linked-dir").symlink_to(sentinel_dir, target_is_directory=True)
+
+            run_repo = Path(tmp) / "run" / "repo"
+            gitops.clone_repo(root, run_repo, include_dirty=True)
+
+            copied = run_repo / "linked-dir"
+            self.assertTrue(copied.is_symlink())
+            self.assertEqual(os.readlink(copied), str(sentinel_dir))
+
+    def test_clone_include_dirty_preserves_broken_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = init_repo(Path(tmp) / "repo")
+            (root / "tracked.txt").write_text("tracked\n")
+            git(root, "add", "tracked.txt")
+            git(root, "commit", "-m", "add tracked file")
+
+            (root / "broken.txt").symlink_to("missing-untracked")
+            (root / "tracked.txt").unlink()
+            (root / "tracked.txt").symlink_to("missing-tracked")
+
+            run_repo = Path(tmp) / "run" / "repo"
+            gitops.clone_repo(root, run_repo, include_dirty=True)
+
+            for name, target in (
+                ("broken.txt", "missing-untracked"),
+                ("tracked.txt", "missing-tracked"),
+            ):
+                copied = run_repo / name
+                self.assertTrue(copied.is_symlink())
+                self.assertFalse(copied.exists())
+                self.assertEqual(os.readlink(copied), target)
+
+    def test_copy_dirty_paths_does_not_write_through_dest_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = init_repo(Path(tmp) / "repo")
+            sentinel = Path(tmp) / "sentinel.txt"
+            sentinel.write_text("secret\n")
+            probe = root / "probe"
+            probe.symlink_to(sentinel)
+            git(root, "add", "probe")
+            git(root, "commit", "-m", "add probe symlink")
+
+            probe.unlink()
+            probe.write_text("replacement\n")
+
+            run_repo = Path(tmp) / "run" / "repo"
+            gitops.clone_repo(root, run_repo, include_dirty=True)
+
+            copied = run_repo / "probe"
+            self.assertFalse(copied.is_symlink())
+            self.assertEqual(copied.read_text(), "replacement\n")
+            self.assertEqual(sentinel.read_text(), "secret\n")
 
     def test_import_branch_signed_replays_with_signed_commits(self):
         with tempfile.TemporaryDirectory() as tmp:

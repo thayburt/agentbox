@@ -238,17 +238,34 @@ def fast_forward(original_repo: Path, target_ref: str) -> None:
 
 
 def _copy_or_remove(src: Path, dest: Path) -> None:
-    if not src.exists():
-        if dest.is_dir():
-            shutil.rmtree(dest)
-        elif dest.exists():
-            dest.unlink()
+    if not os.path.lexists(src):
+        _remove_dest(dest)
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if src.is_dir():
-        shutil.copytree(src, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
+    if src.is_symlink():
+        _remove_dest(dest)
+        os.symlink(os.readlink(src), dest)
+    elif src.is_dir():
+        if dest.is_symlink() or dest.is_file():
+            dest.unlink()
+        shutil.copytree(
+            src,
+            dest,
+            symlinks=True,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(".git"),
+        )
     else:
+        if dest.is_symlink() or dest.is_dir():
+            _remove_dest(dest)
         shutil.copy2(src, dest)
+
+
+def _remove_dest(dest: Path) -> None:
+    if dest.is_symlink() or dest.is_file():
+        dest.unlink()
+    elif dest.is_dir():
+        shutil.rmtree(dest)
 
 
 def _git_config_get(repo: Path, key: str) -> str | None:
