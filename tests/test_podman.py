@@ -38,6 +38,7 @@ class PodmanTests(unittest.TestCase):
                 image="agentbox-codex:test",
                 run_repo=run_repo,
                 command="exec bash",
+                driver_id="codex",
             )
             self.assertIn("--userns=keep-id", cmd)
             self.assertIn(f"{codex_home.resolve()}:/codex-home", cmd)
@@ -55,6 +56,7 @@ class PodmanTests(unittest.TestCase):
                 image="agentbox-codex:test",
                 run_repo=run_repo,
                 command="exec bash",
+                driver_id="codex",
             )
 
             self.assertIn("--cap-drop=ALL", cmd)
@@ -77,7 +79,7 @@ class PodmanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             config = replace(self.config(root), selinux="auto")
-            codex_home = config.codex_home
+            codex_home = config.driver_settings("codex").codex_home
             codex_home.mkdir(parents=True, exist_ok=True)
             run_repo = root / "run" / "repo"
             run_repo.mkdir(parents=True)
@@ -87,6 +89,7 @@ class PodmanTests(unittest.TestCase):
                     image="agentbox-codex:test",
                     run_repo=run_repo,
                     command="exec bash",
+                    driver_id="codex",
                 )
             self.assertIn(f"{codex_home.resolve()}:/codex-home:z", cmd)
             self.assertIn(f"{run_repo.resolve()}:/workspace:Z", cmd)
@@ -94,11 +97,11 @@ class PodmanTests(unittest.TestCase):
     def test_ensure_harness_containerfile_writes_default_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
-            path = podman.ensure_harness_containerfile(config)
+            path = podman.ensure_harness_containerfile(config, driver_id="codex")
             original = path.read_text()
 
             path.write_text("custom\n")
-            podman.ensure_harness_containerfile(config)
+            podman.ensure_harness_containerfile(config, driver_id="codex")
 
             codex = get_driver("codex")
             self.assertEqual(original, codex.default_containerfile(config.driver_settings("codex")))
@@ -121,11 +124,11 @@ class PodmanTests(unittest.TestCase):
     def test_content_changes_produce_different_managed_image_tags(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
-            path = podman.ensure_harness_containerfile(config)
-            first = podman.current_managed_image(config)
+            path = podman.ensure_harness_containerfile(config, driver_id="codex")
+            first = podman.current_managed_image(config, driver_id="codex")
 
             path.write_text(path.read_text() + "\nRUN true\n")
-            second = podman.current_managed_image(config)
+            second = podman.current_managed_image(config, driver_id="codex")
 
             self.assertNotEqual(first, second)
             self.assertTrue(first.startswith("agentbox-codex:"))
@@ -133,24 +136,24 @@ class PodmanTests(unittest.TestCase):
     def test_build_image_skips_existing_managed_image(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
-            podman.ensure_harness_containerfile(config)
+            podman.ensure_harness_containerfile(config, driver_id="codex")
             with (
                 mock.patch("agentbox.podman.image_exists", return_value=True),
                 mock.patch("agentbox.podman.subprocess.run") as run,
             ):
-                podman.build_image(config)
+                podman.build_image(config, driver_id="codex")
 
             run.assert_not_called()
 
     def test_build_image_uses_agentbox_containerfile_and_context(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
-            podman.ensure_harness_containerfile(config)
+            podman.ensure_harness_containerfile(config, driver_id="codex")
             with (
                 mock.patch("agentbox.podman.image_exists", return_value=False),
                 mock.patch("agentbox.podman.subprocess.run") as run,
             ):
-                podman.build_image(config)
+                podman.build_image(config, driver_id="codex")
 
             cmd = run.call_args.args[0]
             self.assertIn("podman", cmd)
@@ -164,19 +167,19 @@ class PodmanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
 
-            path = podman.harness_containerfile_path(config, "kilocode")
+            path = podman.harness_containerfile_path(config, driver_id="kilocode")
 
             self.assertEqual(path, Path(tmp) / ".agentbox" / "kilo" / "Containerfile")
 
     def test_build_image_force_rebuilds_existing_image(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
-            podman.ensure_harness_containerfile(config)
+            podman.ensure_harness_containerfile(config, driver_id="codex")
             with (
                 mock.patch("agentbox.podman.image_exists", return_value=True),
                 mock.patch("agentbox.podman.subprocess.run") as run,
             ):
-                podman.build_image(config, force=True)
+                podman.build_image(config, force=True, driver_id="codex")
 
             cmd = run.call_args.args[0]
             self.assertIn("--pull=newer", cmd)
@@ -196,7 +199,7 @@ class PodmanTests(unittest.TestCase):
                 stderr="",
             )
             with mock.patch("agentbox.podman.run", return_value=completed):
-                images = podman.list_managed_images(config)
+                images = podman.list_managed_images(config, driver_id="codex")
 
             self.assertEqual(images, ["agentbox-codex:aaa", "localhost/agentbox-codex:bbb"])
 
@@ -314,7 +317,7 @@ class PodmanTests(unittest.TestCase):
 
             podman.ensure_state_mounts(config, "codex", {}, root / "runs" / "run" / "repo")
 
-            self.assertTrue(config.codex_home.is_dir())
+            self.assertTrue(config.driver_settings("codex").codex_home.is_dir())
 
     def test_dry_run_reports_base_image_tag_and_defers_managed_image_tag(self):
         with tempfile.TemporaryDirectory() as tmp:

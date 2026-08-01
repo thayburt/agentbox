@@ -36,7 +36,8 @@ def create_metadata(
     base_branch: str,
     base_head: str,
     image: str,
-    driver: str = "codex",
+    *,
+    driver: str,
     containerfile: str | None = None,
 ) -> RunMetadata:
     return RunMetadata(

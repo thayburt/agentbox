@@ -46,12 +46,12 @@ def podman_rootless() -> bool | None:
     return None
 
 
-def harness_containerfile_path(config: Config, driver_id: str = "codex") -> Path:
+def harness_containerfile_path(config: Config, *, driver_id: str) -> Path:
     driver = get_driver(driver_id)
     return config.repo_root / ".agentbox" / driver.id / "Containerfile"
 
 
-def harness_image_name(config: Config, digest: str, driver_id: str = "codex") -> str:
+def harness_image_name(config: Config, digest: str, *, driver_id: str) -> str:
     settings = config.driver_settings(driver_id)
     return f"{settings.image_name}:{digest}"
 
@@ -61,13 +61,13 @@ def build_image(
     dry_run: bool = False,
     *,
     force: bool = False,
-    driver_id: str = "codex",
-) -> list[str]:
+    driver_id: str,
+) -> None:
     image = current_managed_image(config, dry_run=dry_run, driver_id=driver_id)
-    containerfile = harness_containerfile_path(config, driver_id)
+    containerfile = harness_containerfile_path(config, driver_id=driver_id)
     # A forced rebuild also refreshes the base image, since the content-addressed
     # tag cannot detect upstream base-image or install-script changes on its own.
-    return build_tagged_image(
+    build_tagged_image(
         config,
         containerfile,
         image,
@@ -86,8 +86,8 @@ def build_tagged_image(
     dry_run: bool = False,
     force: bool = False,
     pull_newer: bool = False,
-    driver_id: str = "codex",
-) -> list[str]:
+    driver_id: str,
+) -> None:
     context = config.repo_root / ".agentbox"
     exists_cmd = ["podman", "image", "exists", image]
     cmd = managed_build_command(
@@ -96,15 +96,14 @@ def build_tagged_image(
     if dry_run:
         print(shlex.join(exists_cmd))
         print(shlex.join(cmd))
-        return cmd
+        return
     if not force and image_exists(image):
         print(f"image {image} already exists; skipping build")
-        return exists_cmd
+        return
 
     context.mkdir(parents=True, exist_ok=True)
     ensure_containerignore(context)
     subprocess.run(cmd, check=True)
-    return cmd
 
 
 def ensure_containerignore(context: Path) -> None:
@@ -134,7 +133,7 @@ def image_exists(image: str) -> bool:
 
 
 def current_managed_image(
-    config: Config, *, dry_run: bool = False, driver_id: str = "codex"
+    config: Config, *, dry_run: bool = False, driver_id: str
 ) -> str:
     path = ensure_harness_containerfile(config, driver_id=driver_id, dry_run=dry_run)
     if dry_run and not path.exists():
@@ -142,10 +141,10 @@ def current_managed_image(
         return f"{settings.image_name}:{_DRY_RUN_IMAGE_TAG}"
     else:
         digest = containerfile_digest(path)
-    return harness_image_name(config, digest, driver_id)
+    return harness_image_name(config, digest, driver_id=driver_id)
 
 
-def ensure_managed_image(config: Config, *, dry_run: bool = False, driver_id: str = "codex") -> str:
+def ensure_managed_image(config: Config, *, dry_run: bool = False, driver_id: str) -> str:
     image = current_managed_image(config, dry_run=dry_run, driver_id=driver_id)
     if dry_run:
         print(shlex.join(["podman", "image", "exists", image]))
@@ -161,10 +160,10 @@ def managed_build_command(
     containerfile: Path | None = None,
     *,
     pull_newer: bool = False,
-    driver_id: str = "codex",
+    driver_id: str,
 ) -> list[str]:
     if containerfile is None:
-        containerfile = harness_containerfile_path(config, driver_id)
+        containerfile = harness_containerfile_path(config, driver_id=driver_id)
     context = config.repo_root / ".agentbox"
     cmd = ["podman", "build", "-t", image, "-f", str(containerfile)]
     if pull_newer:
@@ -173,7 +172,7 @@ def managed_build_command(
     return cmd
 
 
-def list_managed_images(config: Config, driver_id: str = "codex") -> list[str]:
+def list_managed_images(config: Config, *, driver_id: str) -> list[str]:
     result = run(["podman", "images", "--format", "{{.Repository}}:{{.Tag}}"], check=False)
     if result.returncode != 0:
         return []
@@ -203,10 +202,10 @@ def remove_image(image: str) -> None:
 
 
 def ensure_harness_containerfile(
-    config: Config, driver_id: str = "codex", dry_run: bool = False
+    config: Config, *, driver_id: str, dry_run: bool = False
 ) -> Path:
     driver = get_driver(driver_id)
-    path = harness_containerfile_path(config, driver.id)
+    path = harness_containerfile_path(config, driver_id=driver.id)
     if path.exists():
         return path
     if dry_run:
@@ -277,7 +276,7 @@ def render_run_command(
     image: str,
     run_repo: Path,
     command: str,
-    driver_id: str = "codex",
+    driver_id: str,
     host_env: dict[str, str] | None = None,
 ) -> list[str]:
     driver = get_driver(driver_id)

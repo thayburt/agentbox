@@ -17,7 +17,10 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.dict(os.environ, {"CODEX_HOME": "/tmp/codex-home"}):
                 config = load_config(Path(tmp))
-                self.assertEqual(config.codex_home, Path("/tmp/codex-home"))
+                self.assertEqual(
+                    config.driver_settings("codex").codex_home,
+                    Path("/tmp/codex-home"),
+                )
 
     def test_kilo_defaults_load(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -10,6 +10,7 @@ from ..template import read_template, render_template
 
 AGENTBOX_CONFIG_RELATIVE_PATH = Path(".agentbox/kilo/kilo.jsonc")
 KILO_HOME = "/home/ubuntu"
+KILO_DATA_MOUNT_DESCRIPTION = "Kilo XDG data"
 
 
 @dataclass(frozen=True)
@@ -65,7 +66,7 @@ class KiloDriver:
                 "directory",
                 create=True,
                 chown=True,
-                description="Kilo XDG data",
+                description=KILO_DATA_MOUNT_DESCRIPTION,
             ),
         ]
 
@@ -236,7 +237,11 @@ class KiloDriver:
     ) -> list[Diagnostic]:
         _settings(settings)
         mounts = self.state_mounts(settings, host_env)
-        normal_paths = [mount.source for mount in mounts if mount.description == "Kilo XDG data"]
+        normal_paths = [
+            mount.source
+            for mount in mounts
+            if mount.description == KILO_DATA_MOUNT_DESCRIPTION
+        ]
         exists = any(path.exists() for path in normal_paths)
         severity = "ok" if exists else "warning"
         message = None if exists else "not found; first interactive setup may create it"

@@ -6,7 +6,6 @@ from pathlib import Path
 import tomllib
 
 from .drivers import (
-    CodexSettings,
     CommonDriverSettings,
     all_drivers,
     canonical_driver_id,
@@ -35,29 +34,6 @@ class Config:
         except KeyError as exc:
             get_driver(canonical)
             raise RuntimeError(f"missing settings for driver: {canonical}") from exc
-
-    @property
-    def image_name(self) -> str:
-        return self._codex_settings().image_name
-
-    @property
-    def base_image(self) -> str:
-        return self._codex_settings().base_image
-
-    @property
-    def codex_home(self) -> Path:
-        return self._codex_settings().codex_home
-
-    @property
-    def workspace_folder(self) -> str:
-        return self._codex_settings().workspace_folder
-
-    def _codex_settings(self) -> CodexSettings:
-        settings = self.driver_settings("codex")
-        if not isinstance(settings, CodexSettings):
-            raise RuntimeError("codex driver returned invalid settings")
-        return settings
-
 
 def default_toml() -> str:
     driver_sections = "\n".join(

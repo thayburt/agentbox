@@ -223,6 +223,9 @@ fast-forward the current branch when it is safe, or leave the run for later
 review. Fast-forward requires a clean host worktree, the same branch the run was
 created from, and no host-only commits outside the run history.
 
+Pull handling intentionally runs even after a non-zero harness exit so
+non-interactive pull modes can import work from a failed run.
+
 List saved runs:
 
 ```bash

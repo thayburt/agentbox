@@ -21,6 +21,7 @@ class RunsTests(unittest.TestCase):
                 "main",
                 "0" * 40,
                 "agentbox-codex:test",
+                driver="codex",
             )
             runs.write_metadata(valid_dir, metadata)
             invalid_dir.mkdir()
@@ -44,6 +45,7 @@ class RunsTests(unittest.TestCase):
                 "main",
                 "0" * 40,
                 "agentbox-codex:test",
+                driver="codex",
             )
             runs.write_metadata(run_dir, metadata)
             data = json.loads((run_dir / runs.METADATA_FILE).read_text())
