@@ -8,6 +8,8 @@ import secrets
 import sys
 
 
+# run.json is trusted host input because run directories are never mounted into
+# containers. If that boundary changes, metadata parsing must become defensive.
 METADATA_FILE = "run.json"
 
 

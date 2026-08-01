@@ -133,6 +133,11 @@ def branch_exists(repo: Path, branch: str) -> bool:
 
 
 def fetch_head(original_repo: Path, run_repo: Path) -> str:
+    """Fetch from an agent-controlled clone using a hook-free local path.
+
+    Keep this restricted to local paths. Fetching remote URLs would require a
+    new trust review because their transports and authentication are untrusted.
+    """
     run_git(["fetch", "--quiet", str(run_repo), "HEAD"], original_repo)
     return rev_parse(original_repo, "FETCH_HEAD")
 
