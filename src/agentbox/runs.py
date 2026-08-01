@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import json
 import secrets
+import sys
 
 
 METADATA_FILE = "run.json"
@@ -65,8 +66,15 @@ def read_metadata(run_dir: Path) -> RunMetadata:
 def list_runs(run_store: Path) -> list[RunMetadata]:
     if not run_store.exists():
         return []
-    runs: list[RunMetadata] = []
+    found: list[RunMetadata] = []
     for path in sorted(run_store.iterdir()):
-        if path.is_dir() and (path / METADATA_FILE).exists():
-            runs.append(read_metadata(path))
-    return runs
+        if not path.is_dir() or not (path / METADATA_FILE).exists():
+            continue
+        try:
+            found.append(read_metadata(path))
+        except (OSError, json.JSONDecodeError, TypeError, KeyError, ValueError) as exc:
+            print(
+                f"agentbox: warning: skipping invalid run metadata in {path}: {exc}",
+                file=sys.stderr,
+            )
+    return found

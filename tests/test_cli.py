@@ -614,6 +614,33 @@ user_email = "config@example.com"
             self.assertIn("invalid run id: ../escape", text)
             self.assertFalse((config.run_store / "keep").exists())
 
+    def test_runs_prune_rejects_symlinked_run_store_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            outside = root / "outside-run"
+            metadata = runs.create_metadata(
+                "linked",
+                root,
+                outside / "repo",
+                "main",
+                "0" * 40,
+                "agentbox-codex:test",
+            )
+            runs.write_metadata(outside, metadata)
+            config.run_store.mkdir(parents=True)
+            (config.run_store / "linked").symlink_to(outside, target_is_directory=True)
+            errors = io.StringIO()
+
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
+                status = cli.cmd_runs_prune(
+                    self.args(repo=root, all=False, run_id=["linked"])
+                )
+
+            self.assertEqual(status, 2)
+            self.assertIn("invalid run id: linked", errors.getvalue())
+            self.assertTrue(outside.exists())
+
     def test_runs_import_uses_sign_imports_from_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
