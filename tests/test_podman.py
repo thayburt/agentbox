@@ -422,6 +422,37 @@ class PodmanTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "duplicate mount target"):
                 podman.validated_state_mounts(mounts, "/workspace")
 
+    def test_mount_target_with_colon_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mount = MountSpec(Path(tmp), "/sta:e", "directory")
+
+            with self.assertRaisesRegex(RuntimeError, "must not contain"):
+                podman.validated_state_mounts([mount], "/workspace")
+
+    def test_mount_source_with_colon_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mount = MountSpec(Path(tmp) / "co:lon", "/state", "directory")
+
+            with self.assertRaisesRegex(RuntimeError, "must not contain"):
+                podman.validated_state_mounts([mount], "/workspace")
+
+    def test_mount_target_dotdot_evasion_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mount = MountSpec(Path(tmp), "/other/../workspace", "directory")
+
+            with self.assertRaisesRegex(RuntimeError, "interferes with workspace"):
+                podman.validated_state_mounts([mount], "/workspace")
+
+    def test_duplicate_targets_rejected_after_normalization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mounts = [
+                MountSpec(Path(tmp), "/state", "directory"),
+                MountSpec(Path(tmp), "/state/./", "directory"),
+            ]
+
+            with self.assertRaisesRegex(RuntimeError, "duplicate mount target"):
+                podman.validated_state_mounts(mounts, "/workspace")
+
     def test_host_source_root_is_rejected(self):
         mount = MountSpec(Path("/"), "/state", "directory")
 

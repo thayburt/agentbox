@@ -364,17 +364,21 @@ def validated_state_mounts(
 
 
 def validate_mount(mount: MountSpec, workspace: str, targets: set[str]) -> None:
+    if ":" in mount.target:
+        raise RuntimeError(f"mount target must not contain ':': {mount.target}")
+    source = mount.source.expanduser()
+    if ":" in str(source):
+        raise RuntimeError(f"mount source must not contain ':': {source}")
     if not mount.target.startswith("/"):
         raise RuntimeError(f"mount target must be absolute: {mount.target}")
-    normalized_target = mount.target.rstrip("/") or "/"
-    normalized_workspace = workspace.rstrip("/") or "/"
+    normalized_target = posixpath.normpath(mount.target)
+    normalized_workspace = posixpath.normpath(workspace)
     if normalized_target in {"/", normalized_workspace} or normalized_target.startswith(
         normalized_workspace + "/"
     ):
         raise RuntimeError(f"mount target interferes with workspace: {mount.target}")
     if normalized_target in targets:
         raise RuntimeError(f"duplicate mount target: {mount.target}")
-    source = mount.source.expanduser()
     if source.resolve() == Path("/"):
         raise RuntimeError(f"mount source must not be root: {source}")
     targets.add(normalized_target)
