@@ -28,6 +28,14 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(settings.base_image, "ubuntu:24.04")
             self.assertEqual(settings.workspace_folder, "/workspace")
 
+    def test_run_store_rejects_filesystem_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agentbox.toml").write_text('[runtime]\nrun_store = "/"\n')
+
+            with self.assertRaisesRegex(RuntimeError, "filesystem root"):
+                load_config(root)
+
     def test_git_identity_defaults_to_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_config(Path(tmp))

@@ -94,6 +94,8 @@ def load_config(repo_root: Path) -> Config:
         harnesses[driver.id] = settings
 
     run_store = _resolve_repo_path(repo_root, run_store_raw)
+    if run_store.resolve() == Path(run_store.resolve().anchor):
+        raise RuntimeError("run_store must not be the filesystem root")
 
     return Config(
         repo_root=repo_root,
