@@ -385,7 +385,10 @@ def validate_mount(mount: MountSpec, workspace: str, targets: set[str]) -> None:
 
 
 def render_mount(mount: MountSpec, selinux: str) -> str:
-    return f"{mount.source.expanduser().resolve()}:{mount.target}{volume_suffix_for_mount(selinux, mount)}"
+    return (
+        f"{mount.source.expanduser().resolve()}:{mount.target}"
+        f"{volume_suffix_for_mount(selinux, mount)}"
+    )
 
 
 def volume_suffix_for_mount(mode: str, mount: MountSpec) -> str:

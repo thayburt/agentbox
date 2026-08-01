@@ -41,6 +41,7 @@ Run tests with:
 
 ```bash
 uv run python -m unittest discover -s tests -v
+uv run ruff check
 ```
 
 `agentbox` expects rootless Podman. Each harness driver declares its own state

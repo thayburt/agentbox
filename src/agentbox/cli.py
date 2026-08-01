@@ -312,7 +312,8 @@ def cmd_harness_shell(args: argparse.Namespace) -> int:
         metadata = load_run(config, args.run_id)
         if metadata.driver != driver_id:
             raise RuntimeError(
-                f"run {metadata.id} uses driver {metadata.driver}; use `agentbox runs enter {metadata.id}`"
+                f"run {metadata.id} uses driver {metadata.driver}; use "
+                f"`agentbox runs enter {metadata.id}`"
             )
         image = args.image or metadata.image
         if args.image is None:
@@ -380,7 +381,8 @@ def cmd_runs_import(args: argparse.Namespace) -> int:
     if commit_count == 0:
         if gitops.has_uncommitted_changes(run_repo):
             print(
-                f"run {metadata.id} has uncommitted changes; use `agentbox runs enter {metadata.id}`"
+                f"run {metadata.id} has uncommitted changes; use "
+                f"`agentbox runs enter {metadata.id}`"
             )
             return 2
         print(f"run {metadata.id} has no commits to import")
@@ -662,7 +664,8 @@ def complete_run(
     if run_only_count == 0:
         if has_uncommitted:
             print(
-                f"run {metadata.id} has uncommitted changes; use `agentbox runs enter {metadata.id}`"
+                f"run {metadata.id} has uncommitted changes; use "
+                f"`agentbox runs enter {metadata.id}`"
             )
         else:
             print(f"run {metadata.id} has no commits to pull")
@@ -674,7 +677,8 @@ def complete_run(
     if has_uncommitted:
         print()
         print(
-            f"run {metadata.id} also has uncommitted changes; use `agentbox runs enter {metadata.id}`"
+            f"run {metadata.id} also has uncommitted changes; use "
+            f"`agentbox runs enter {metadata.id}`"
         )
 
     fast_forward = gitops.check_fast_forward(config.repo_root, metadata.base_branch, target_head)
