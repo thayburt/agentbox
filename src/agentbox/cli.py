@@ -65,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     runs_enter = runs_sub.add_parser("enter", help="Open a shell in a saved run")
     runs_enter.add_argument("run_id")
     runs_enter.add_argument("--dry-run", action="store_true")
+    runs_enter.add_argument("--image", default=None)
     runs_enter.set_defaults(func=cmd_runs_enter)
     runs_import = runs_sub.add_parser("import", help="Import run commits as a local branch")
     runs_import.add_argument("run_id")
@@ -313,7 +314,9 @@ def cmd_harness_shell(args: argparse.Namespace) -> int:
             raise RuntimeError(
                 f"run {metadata.id} uses driver {metadata.driver}; use `agentbox runs enter {metadata.id}`"
             )
-        ensure_saved_run_image(config, metadata, args.dry_run)
+        image = args.image or metadata.image
+        if args.image is None:
+            ensure_saved_run_image(config, metadata, args.dry_run)
     else:
         preflight = resolve_run_inputs(
             config,
@@ -338,7 +341,7 @@ def cmd_harness_shell(args: argparse.Namespace) -> int:
         should_complete = True
     command = "exec bash"
     status = run_container(
-        config, metadata.image, Path(metadata.run_repo), command, args.dry_run, driver_id
+        config, image, Path(metadata.run_repo), command, args.dry_run, driver_id
     )
     if args.dry_run or not should_complete:
         return status
@@ -358,10 +361,12 @@ def cmd_runs_list(args: argparse.Namespace) -> int:
 def cmd_runs_enter(args: argparse.Namespace) -> int:
     config = context(args)
     metadata = load_run(config, args.run_id)
-    ensure_saved_run_image(config, metadata, args.dry_run)
+    image = args.image or metadata.image
+    if args.image is None:
+        ensure_saved_run_image(config, metadata, args.dry_run)
     command = "exec bash"
     return run_container(
-        config, metadata.image, Path(metadata.run_repo), command, args.dry_run, metadata.driver
+        config, image, Path(metadata.run_repo), command, args.dry_run, metadata.driver
     )
 
 
@@ -636,7 +641,8 @@ def ensure_saved_run_image(config: Config, metadata: runs.RunMetadata, dry_run: 
         return
     raise RuntimeError(
         f"image {image} for run {metadata.id} is missing and has no Containerfile "
-        f"snapshot to rebuild from; rebuild it manually or rerun with --image"
+        "snapshot to rebuild from; rebuild it manually or enter with "
+        f"`agentbox runs enter {metadata.id} --image <image>`"
     )
 
 

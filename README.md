@@ -234,6 +234,9 @@ Open a shell in a run:
 uv run agentbox runs enter <run-id>
 ```
 
+`runs enter` and `<harness> shell --run` accept `--image` to override the saved
+image for that session without rewriting run metadata.
+
 Import committed work from a run as a new local branch:
 
 ```bash

@@ -35,9 +35,11 @@ class CliRunPreparationTests(unittest.TestCase):
 
         run = parser.parse_args(["codex", "run", "--image", "ubuntu:24.04"])
         shell = parser.parse_args(["codex", "shell", "--image", "localhost/custom:dev"])
+        enter = parser.parse_args(["runs", "enter", "abc", "--image", "ubuntu:24.04"])
 
         self.assertEqual(run.image, "ubuntu:24.04")
         self.assertEqual(shell.image, "localhost/custom:dev")
+        self.assertEqual(enter.image, "ubuntu:24.04")
 
     def test_parser_accepts_kilo_and_kilocode_alias(self):
         parser = cli.build_parser()
@@ -142,7 +144,9 @@ class CliRunPreparationTests(unittest.TestCase):
             output = io.StringIO()
 
             with contextlib.redirect_stdout(output):
-                status = cli.cmd_runs_enter(self.args(repo=root, run_id="kilo-run", dry_run=True))
+                status = cli.cmd_runs_enter(
+                    self.args(repo=root, run_id="kilo-run", dry_run=True, image=None)
+                )
 
             self.assertEqual(status, 0)
             self.assertIn(f"{run_dir / 'cache'}:/home/ubuntu/.cache:U", output.getvalue())
@@ -351,7 +355,7 @@ user_email = "config@example.com"
             ):
                 with self.quiet_output():
                     status = cli.cmd_runs_enter(
-                        self.args(repo=root, run_id="kilo-run", dry_run=True)
+                        self.args(repo=root, run_id="kilo-run", dry_run=True, image=None)
                     )
 
             self.assertEqual(status, 0)
@@ -362,7 +366,7 @@ user_email = "config@example.com"
             ):
                 with self.quiet_output():
                     status = cli.cmd_runs_enter(
-                        self.args(repo=root, run_id="kilo-run", dry_run=True)
+                        self.args(repo=root, run_id="kilo-run", dry_run=True, image=None)
                     )
 
             self.assertEqual(status, 0)
@@ -568,6 +572,74 @@ user_email = "config@example.com"
             with mock.patch("agentbox.cli.podman.image_exists", return_value=False):
                 with self.assertRaisesRegex(RuntimeError, "no Containerfile snapshot"):
                     cli.ensure_saved_run_image(config, metadata, dry_run=False)
+
+    def test_runs_enter_image_override_skips_image_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            run_dir = config.run_store / "run-b"
+            run_repo = run_dir / "repo"
+            run_repo.mkdir(parents=True)
+            metadata = runs.create_metadata(
+                "run-b",
+                root,
+                run_repo,
+                "main",
+                "0" * 40,
+                "agentbox-codex:gone",
+            )
+            runs.write_metadata(run_dir, metadata)
+            output = io.StringIO()
+
+            with mock.patch(
+                "agentbox.cli.podman.image_exists", return_value=False
+            ) as image_exists:
+                with contextlib.redirect_stdout(output):
+                    status = cli.cmd_runs_enter(
+                        self.args(
+                            repo=root,
+                            run_id="run-b",
+                            dry_run=True,
+                            image="override:tag",
+                        )
+                    )
+
+            self.assertEqual(status, 0)
+            self.assertIn("override:tag", output.getvalue())
+            image_exists.assert_not_called()
+
+    def test_shell_run_image_override_is_honored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            run_dir = config.run_store / "run-b"
+            run_repo = run_dir / "repo"
+            run_repo.mkdir(parents=True)
+            metadata = runs.create_metadata(
+                "run-b",
+                root,
+                run_repo,
+                "main",
+                "0" * 40,
+                "agentbox-codex:gone",
+            )
+            runs.write_metadata(run_dir, metadata)
+            output = io.StringIO()
+
+            with mock.patch("agentbox.cli.podman.image_exists", return_value=False):
+                with contextlib.redirect_stdout(output):
+                    status = cli.cmd_harness_shell(
+                        self.args(
+                            repo=root,
+                            run_id="run-b",
+                            driver_id="codex",
+                            dry_run=True,
+                            image="override:tag",
+                        )
+                    )
+
+            self.assertEqual(status, 0)
+            self.assertIn("override:tag", output.getvalue())
 
     def test_driver_specific_shell_rejects_mismatched_run(self):
         with tempfile.TemporaryDirectory() as tmp:
