@@ -73,7 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def register_driver_commands(subparsers, command_name: str, display_name: str) -> None:
+def register_driver_commands(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    command_name: str,
+    display_name: str,
+) -> None:
     driver_id = canonical_driver_id(command_name)
     parser = subparsers.add_parser(command_name, help=f"{display_name} container commands")
     harness_sub = parser.add_subparsers(required=True)
@@ -432,7 +436,7 @@ def selected_driver_id(args: argparse.Namespace) -> str:
 
 def repo_root(args: argparse.Namespace) -> Path:
     if args.repo:
-        return args.repo.resolve()
+        return Path(args.repo).resolve()
     result = gitops.run_git(["rev-parse", "--show-toplevel"], Path.cwd())
     return Path(result.stdout.strip()).resolve()
 

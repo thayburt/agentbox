@@ -42,8 +42,8 @@ def default_toml() -> str:
     return render_template("agentbox.toml", {"DRIVER_SECTIONS": driver_sections})
 
 
-def _get(table: dict, dotted: str, default=None):
-    current = table
+def _get(table: dict[str, object], dotted: str, default: object = None) -> object:
+    current: object = table
     for part in dotted.split("."):
         if not isinstance(current, dict) or part not in current:
             return default
@@ -54,7 +54,7 @@ def _get(table: dict, dotted: str, default=None):
 def load_config(repo_root: Path) -> Config:
     repo_root = repo_root.resolve()
     path = repo_root / CONFIG_FILE
-    data: dict = {}
+    data: dict[str, object] = {}
     if path.exists():
         data = tomllib.loads(path.read_text())
 
@@ -85,7 +85,7 @@ def load_config(repo_root: Path) -> Config:
     )
 
 
-def _resolve_repo_path(repo_root: Path, value: str) -> Path:
+def _resolve_repo_path(repo_root: Path, value: object) -> Path:
     path = Path(str(value)).expanduser()
     if path.is_absolute():
         return path

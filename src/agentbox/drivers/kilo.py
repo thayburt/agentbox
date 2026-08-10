@@ -20,7 +20,7 @@ class KiloSettings(CommonDriverSettings):
 class KiloDriver:
     id = "kilo"
     display_name = "Kilo Code"
-    aliases = ("kilocode",)
+    aliases: tuple[str, ...] = ("kilocode",)
 
     def default_settings(self, host_env: Mapping[str, str]) -> KiloSettings:
         del host_env
@@ -243,11 +243,13 @@ class KiloDriver:
             mount.source for mount in mounts if mount.description == KILO_DATA_MOUNT_DESCRIPTION
         ]
         exists = any(path.exists() for path in normal_paths)
-        severity = "ok" if exists else "warning"
         message = None if exists else "not found; first interactive setup may create it"
         diagnostics = [
             Diagnostic(
-                "kilo_data", ", ".join(str(path) for path in normal_paths), severity, message
+                "kilo_data",
+                ", ".join(str(path) for path in normal_paths),
+                "ok" if exists else "warning",
+                message,
             )
         ]
         agentbox_config = repo_root / AGENTBOX_CONFIG_RELATIVE_PATH
