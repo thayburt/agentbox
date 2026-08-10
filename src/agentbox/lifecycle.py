@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import gitops, podman, runs
 from .config import Config
+from .domain import DriverId, GitBranch, GitCommit, ImageRef
 from .drivers import get_driver
 from .seed import seed_run_files, snapshot_containerfile
 
@@ -42,14 +43,14 @@ def current_managed_image_or_none(config: Config, *, driver_id: str) -> str | No
 def prepare_run(
     config: Config,
     dirty_mode: str,
-    image: str,
+    image: ImageRef,
     *,
     dry_run: bool = False,
     git_user_name: str | None = None,
     git_user_email: str | None = None,
     preflight: tuple[gitops.RepoState, bool, gitops.GitIdentity] | None = None,
     containerfile: Path | None = None,
-    driver_id: str,
+    driver_id: DriverId,
 ) -> tuple[Path, runs.RunMetadata]:
     if preflight is None:
         preflight = resolve_run_inputs(
@@ -65,7 +66,13 @@ def prepare_run(
     run_repo = run_dir / "repo"
     if dry_run:
         metadata = runs.create_metadata(
-            run_id, config.repo_root, run_repo, state.branch, state.head, image, driver=driver_id
+            run_id,
+            config.repo_root,
+            run_repo,
+            GitBranch(state.branch),
+            GitCommit(state.head),
+            image,
+            driver=driver_id,
         )
         return run_dir, metadata
     gitops.clone_repo(config.repo_root, run_repo, include_dirty=include_dirty)
@@ -76,8 +83,8 @@ def prepare_run(
         run_id,
         config.repo_root,
         run_repo,
-        state.branch,
-        state.head,
+        GitBranch(state.branch),
+        GitCommit(state.head),
         image,
         driver=driver_id,
         containerfile=snapshot,
@@ -141,17 +148,17 @@ def resolve_run_dir(config: Config, run_id: str) -> Path:
 
 
 def resolve_run_image(
-    config: Config, image_override: str | None, dry_run: bool, *, driver_id: str
-) -> tuple[str, Path | None]:
+    config: Config, image_override: str | None, dry_run: bool, *, driver_id: str | DriverId
+) -> tuple[ImageRef, Path | None]:
     """Return the image to run and, for managed images, its Containerfile.
 
     An explicit --image override is used verbatim with no snapshot, since its
     build recipe is not owned by agentbox.
     """
     if image_override:
-        return image_override, None
+        return ImageRef(image_override), None
     image = podman.ensure_managed_image(config, dry_run=dry_run, driver_id=driver_id)
-    return image, podman.harness_containerfile_path(config, driver_id=driver_id)
+    return ImageRef(image), podman.harness_containerfile_path(config, driver_id=driver_id)
 
 
 def ensure_saved_run_image(config: Config, metadata: runs.RunMetadata, dry_run: bool) -> None:

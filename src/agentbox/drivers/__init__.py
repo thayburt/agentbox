@@ -3,13 +3,14 @@ from __future__ import annotations
 from .base import CommonDriverSettings, Diagnostic, HarnessDriver, MountSpec, RunSeedFileSpec
 from .codex import CodexDriver, CodexSettings
 from .kilo import KiloDriver, KiloSettings
+from ..domain import DriverId
 
 DRIVERS: tuple[HarnessDriver, ...] = (CodexDriver(), KiloDriver())
 _BY_ID = {driver.id: driver for driver in DRIVERS}
 _ALIASES = {alias: driver.id for driver in DRIVERS for alias in driver.aliases}
 
 
-def get_driver(driver_id: str) -> HarnessDriver:
+def get_driver(driver_id: str | DriverId) -> HarnessDriver:
     canonical = canonical_driver_id(driver_id)
     try:
         return _BY_ID[canonical]
@@ -17,8 +18,11 @@ def get_driver(driver_id: str) -> HarnessDriver:
         raise RuntimeError(f"unknown driver: {driver_id}") from exc
 
 
-def canonical_driver_id(driver_id: str) -> str:
-    return _ALIASES.get(driver_id, driver_id)
+def canonical_driver_id(driver_id: str | DriverId) -> DriverId:
+    canonical = _ALIASES.get(driver_id, driver_id)
+    if canonical not in _BY_ID:
+        raise RuntimeError(f"unknown driver: {driver_id}")
+    return DriverId(canonical)
 
 
 def all_drivers() -> tuple[HarnessDriver, ...]:

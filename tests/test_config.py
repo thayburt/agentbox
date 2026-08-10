@@ -63,6 +63,35 @@ sign_imports = true
             self.assertEqual(config.git_user_email, "agent@example.com")
             self.assertTrue(config.sign_imports)
 
+    def test_rejects_invalid_section_shapes_and_unknown_sections(self):
+        cases = (
+            ("runtime = 'bad'", "runtime must be a table"),
+            ("[unknown]", "unknown is not a valid section"),
+            ("[kilocode]", "kilocode is not a valid section"),
+        )
+        for contents, message in cases:
+            with self.subTest(contents=contents), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "agentbox.toml").write_text(contents)
+                with self.assertRaisesRegex(ValueError, message):
+                    load_config(root)
+
+    def test_rejects_unknown_and_wrongly_typed_values(self):
+        cases = (
+            ("[runtime]\nunknown = 'x'", "runtime.unknown is not a valid setting"),
+            ("[runtime]\nrun_store = false", "runtime.run_store must be a string"),
+            ("[runtime]\nselinux = 'invalid'", "runtime.selinux must be one of"),
+            ("[git]\nsign_imports = 'false'", "git.sign_imports must be a boolean"),
+            ("[codex]\nimage_name = 1", "codex.image_name must be a string"),
+            ("[kilo]\nunknown = 'x'", "kilo.unknown is not a valid setting"),
+        )
+        for contents, message in cases:
+            with self.subTest(contents=contents), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "agentbox.toml").write_text(contents)
+                with self.assertRaisesRegex(ValueError, message):
+                    load_config(root)
+
 
 if __name__ == "__main__":
     unittest.main()

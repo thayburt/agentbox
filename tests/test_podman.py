@@ -613,6 +613,18 @@ class BaseImagePinningTests(unittest.TestCase):
         with mock.patch("agentbox.podman.run", side_effect=self.fake_run(payload)):
             self.assertIsNone(self.resolve("ubuntu:24.04"))
 
+    def test_malformed_inspection_inner_fields_yield_no_pin(self):
+        payloads = (
+            [{"Digest": 1, "RepoDigests": []}],
+            [{"Digest": self.INSTANCE_DIGEST, "RepoDigests": "not-a-list"}],
+            [{"Digest": self.INSTANCE_DIGEST, "RepoDigests": [1]}],
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload), mock.patch(
+                "agentbox.podman.run", side_effect=self.fake_run(payload)
+            ):
+                self.assertIsNone(self.resolve("ubuntu:24.04"))
+
     def test_materialized_containerfile_contains_pinned_from_line(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))

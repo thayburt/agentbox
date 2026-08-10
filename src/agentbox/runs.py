@@ -7,38 +7,39 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-# run.json is trusted host input because run directories are never mounted into
-# containers. If that boundary changes, metadata parsing must become defensive.
+from .domain import DriverId, GitBranch, GitCommit, ImageRef, RunId
+from .drivers import canonical_driver_id
+
 METADATA_FILE = "run.json"
 
 
 @dataclass(frozen=True)
 class RunMetadata:
-    id: str
+    id: RunId
     created_at: str
     original_repo: str
     run_repo: str
-    base_branch: str
-    base_head: str
-    image: str
-    driver: str = "codex"
+    base_branch: GitBranch
+    base_head: GitCommit
+    image: ImageRef
+    driver: DriverId = DriverId("codex")
     containerfile: str | None = None
 
 
-def new_run_id() -> str:
+def new_run_id() -> RunId:
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    return f"{stamp}-{secrets.token_hex(3)}"
+    return RunId(f"{stamp}-{secrets.token_hex(3)}")
 
 
 def create_metadata(
-    run_id: str,
+    run_id: RunId,
     original_repo: Path,
     run_repo: Path,
-    base_branch: str,
-    base_head: str,
-    image: str,
+    base_branch: GitBranch,
+    base_head: GitCommit,
+    image: ImageRef,
     *,
-    driver: str,
+    driver: DriverId,
     containerfile: str | None = None,
 ) -> RunMetadata:
     return RunMetadata(
@@ -61,8 +62,44 @@ def write_metadata(run_dir: Path, metadata: RunMetadata) -> None:
 
 def read_metadata(run_dir: Path) -> RunMetadata:
     data = json.loads((run_dir / METADATA_FILE).read_text())
-    data.setdefault("driver", "codex")
-    return RunMetadata(**data)
+    if not isinstance(data, dict) or not all(isinstance(key, str) for key in data):
+        raise ValueError("run.json must be an object with string keys")
+    allowed = {
+        "id", "created_at", "original_repo", "run_repo", "base_branch", "base_head", "image",
+        "driver", "containerfile",
+    }
+    unknown = sorted(set(data) - allowed)
+    if unknown:
+        raise ValueError(f"run.json has unknown field: {unknown[0]}")
+    required = {
+        "id",
+        "created_at",
+        "original_repo",
+        "run_repo",
+        "base_branch",
+        "base_head",
+        "image",
+    }
+    missing = sorted(required - set(data))
+    if missing:
+        raise ValueError(f"run.json is missing required field: {missing[0]}")
+    for key in required | {"driver"}:
+        if key in data and not isinstance(data[key], str):
+            raise ValueError(f"run.json field {key} must be a string")
+    containerfile = data.get("containerfile")
+    if containerfile is not None and not isinstance(containerfile, str):
+        raise ValueError("run.json field containerfile must be a string or null")
+    return RunMetadata(
+        id=RunId(data["id"]),
+        created_at=data["created_at"],
+        original_repo=data["original_repo"],
+        run_repo=data["run_repo"],
+        base_branch=GitBranch(data["base_branch"]),
+        base_head=GitCommit(data["base_head"]),
+        image=ImageRef(data["image"]),
+        driver=canonical_driver_id(data.get("driver", "codex")),
+        containerfile=containerfile,
+    )
 
 
 def list_runs(run_store: Path) -> list[RunMetadata]:

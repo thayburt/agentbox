@@ -4,8 +4,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..domain import DriverId, ImageName, ImageRef
 from ..template import read_template, render_template
-from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec, RunSeedFileSpec
+from .base import (
+    CommonDriverSettings,
+    Diagnostic,
+    InitFileSpec,
+    MountSpec,
+    RunSeedFileSpec,
+    reject_unknown_settings,
+    required_string,
+)
 
 AGENTBOX_CONFIG_RELATIVE_PATH = Path(".agentbox/kilo/kilo.jsonc")
 KILO_HOME = "/home/ubuntu"
@@ -18,15 +27,15 @@ class KiloSettings(CommonDriverSettings):
 
 
 class KiloDriver:
-    id = "kilo"
+    id = DriverId("kilo")
     display_name = "Kilo Code"
     aliases: tuple[str, ...] = ("kilocode",)
 
     def default_settings(self, host_env: Mapping[str, str]) -> KiloSettings:
         del host_env
         return KiloSettings(
-            image_name="agentbox-kilo",
-            base_image="ubuntu:24.04",
+            image_name=ImageName("agentbox-kilo"),
+            base_image=ImageRef("ubuntu:24.04"),
             workspace_folder="/workspace",
         )
 
@@ -34,10 +43,17 @@ class KiloDriver:
         self, section: Mapping[str, object], host_env: Mapping[str, str]
     ) -> KiloSettings:
         defaults = self.default_settings(host_env)
+        reject_unknown_settings(section, {"image_name", "base_image", "workspace_folder"}, "kilo")
         return KiloSettings(
-            image_name=str(section.get("image_name", defaults.image_name)),
-            base_image=str(section.get("base_image", defaults.base_image)),
-            workspace_folder=str(section.get("workspace_folder", defaults.workspace_folder)),
+            image_name=ImageName(
+                required_string(section, "image_name", defaults.image_name, "kilo")
+            ),
+            base_image=ImageRef(
+                required_string(section, "base_image", defaults.base_image, "kilo")
+            ),
+            workspace_folder=required_string(
+                section, "workspace_folder", defaults.workspace_folder, "kilo"
+            ),
         )
 
     def default_toml_section(self, host_env: Mapping[str, str]) -> str:

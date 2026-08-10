@@ -4,8 +4,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..domain import DriverId, ImageName, ImageRef
 from ..template import render_template
-from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec, RunSeedFileSpec
+from .base import (
+    CommonDriverSettings,
+    Diagnostic,
+    InitFileSpec,
+    MountSpec,
+    RunSeedFileSpec,
+    reject_unknown_settings,
+    required_string,
+)
 
 
 @dataclass(frozen=True)
@@ -14,14 +23,14 @@ class CodexSettings(CommonDriverSettings):
 
 
 class CodexDriver:
-    id = "codex"
+    id = DriverId("codex")
     display_name = "Codex"
     aliases: tuple[str, ...] = ()
 
     def default_settings(self, host_env: Mapping[str, str]) -> CodexSettings:
         return CodexSettings(
-            image_name="agentbox-codex",
-            base_image="ubuntu:24.04",
+            image_name=ImageName("agentbox-codex"),
+            base_image=ImageRef("ubuntu:24.04"),
             workspace_folder="/workspace",
             codex_home=Path(host_env.get("CODEX_HOME", "~/.codex")).expanduser(),
         )
@@ -30,11 +39,22 @@ class CodexDriver:
         self, section: Mapping[str, object], host_env: Mapping[str, str]
     ) -> CodexSettings:
         defaults = self.default_settings(host_env)
-        codex_home = Path(str(section.get("codex_home", defaults.codex_home))).expanduser()
+        reject_unknown_settings(
+            section, {"image_name", "base_image", "workspace_folder", "codex_home"}, "codex"
+        )
+        codex_home = Path(
+            required_string(section, "codex_home", str(defaults.codex_home), "codex")
+        ).expanduser()
         return CodexSettings(
-            image_name=str(section.get("image_name", defaults.image_name)),
-            base_image=str(section.get("base_image", defaults.base_image)),
-            workspace_folder=str(section.get("workspace_folder", defaults.workspace_folder)),
+            image_name=ImageName(
+                required_string(section, "image_name", defaults.image_name, "codex")
+            ),
+            base_image=ImageRef(
+                required_string(section, "base_image", defaults.base_image, "codex")
+            ),
+            workspace_folder=required_string(
+                section, "workspace_folder", defaults.workspace_folder, "codex"
+            ),
             codex_home=codex_home,
         )
 

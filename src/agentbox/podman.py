@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from .config import Config
+from .domain import ImageRef
 from .drivers import MountSpec, get_driver
 
 _BASE_IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -226,7 +227,7 @@ def ensure_harness_containerfile(
             file=sys.stderr,
         )
     else:
-        settings = dataclasses.replace(settings, base_image=pinned)
+        settings = dataclasses.replace(settings, base_image=ImageRef(pinned))
     path.write_text(driver.default_containerfile(settings))
     return path
 
@@ -260,7 +261,16 @@ def resolve_pinned_base_image(base_image: str) -> str | None:
         return None
     info = images[0]
     instance_digest = info.get("Digest")
-    repo_digests = [entry.rsplit("@", 1) for entry in info.get("RepoDigests") or [] if "@" in entry]
+    if instance_digest is not None and not isinstance(instance_digest, str):
+        return None
+    repo_digests_raw = info.get("RepoDigests")
+    if repo_digests_raw is None:
+        repo_digests_raw = []
+    if not isinstance(repo_digests_raw, list) or not all(
+        isinstance(entry, str) for entry in repo_digests_raw
+    ):
+        return None
+    repo_digests = [entry.rsplit("@", 1) for entry in repo_digests_raw if "@" in entry]
     requested_repository = _normalized_image_repository(base_image)
     matching_repo_digests = [
         (repository, digest)

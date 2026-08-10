@@ -7,9 +7,11 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, cast
 
 from . import gitops, lifecycle, podman, runs
 from .config import CONFIG_FILE, Config, default_toml, load_config
+from .domain import DIRTY_MODES, PULL_MODES, DriverId, ImageRef, RunId
 from .drivers import Diagnostic, all_drivers, canonical_driver_id, get_driver
 from .template import render_template
 
@@ -20,7 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        return int(args.func(args))
+        handler = cast(Callable[[argparse.Namespace], int], args.func)
+        return handler(args)
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return 130
@@ -56,17 +59,17 @@ def build_parser() -> argparse.ArgumentParser:
     runs_list = runs_sub.add_parser("list", help="List runs")
     runs_list.set_defaults(func=cmd_runs_list)
     runs_enter = runs_sub.add_parser("enter", help="Open a shell in a saved run")
-    runs_enter.add_argument("run_id")
+    runs_enter.add_argument("run_id", type=RunId)
     runs_enter.add_argument("--dry-run", action="store_true")
-    runs_enter.add_argument("--image", default=None)
+    runs_enter.add_argument("--image", type=ImageRef, default=None)
     runs_enter.set_defaults(func=cmd_runs_enter)
     runs_import = runs_sub.add_parser("import", help="Import run commits as a local branch")
-    runs_import.add_argument("run_id")
+    runs_import.add_argument("run_id", type=RunId)
     runs_import.add_argument("--force", action="store_true")
     add_sign_import_args(runs_import)
     runs_import.set_defaults(func=cmd_runs_import)
     runs_prune = runs_sub.add_parser("prune", help="Delete saved run directories")
-    runs_prune.add_argument("run_id", nargs="*")
+    runs_prune.add_argument("run_id", nargs="*", type=RunId)
     runs_prune.add_argument("--all", action="store_true")
     runs_prune.set_defaults(func=cmd_runs_prune)
 
@@ -103,22 +106,22 @@ def register_driver_commands(
     run = harness_sub.add_parser("run", help=f"Run interactive {display_name} in an isolated clone")
     run.add_argument("prompt", nargs=argparse.REMAINDER)
     run.add_argument("--dry-run", action="store_true")
-    run.add_argument("--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt")
-    run.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
-    run.add_argument("--image", default=None)
+    run.add_argument("--dirty", choices=DIRTY_MODES, default="prompt")
+    run.add_argument("--pull", choices=PULL_MODES, default="prompt")
+    run.add_argument("--image", type=ImageRef, default=None)
     run.add_argument("--git-user-name", default=None)
     run.add_argument("--git-user-email", default=None)
     add_sign_import_args(run)
     run.set_defaults(func=cmd_harness_run, driver_id=driver_id)
 
     shell = harness_sub.add_parser("shell", help="Open a shell in an isolated run")
-    shell.add_argument("--run", dest="run_id")
+    shell.add_argument("--run", dest="run_id", type=RunId)
     shell.add_argument("--dry-run", action="store_true")
     shell.add_argument(
-        "--dirty", choices=["prompt", "include", "ignore", "abort"], default="prompt"
+        "--dirty", choices=DIRTY_MODES, default="prompt"
     )
-    shell.add_argument("--pull", choices=PULL_CHOICES, default="prompt")
-    shell.add_argument("--image", default=None)
+    shell.add_argument("--pull", choices=PULL_MODES, default="prompt")
+    shell.add_argument("--image", type=ImageRef, default=None)
     shell.add_argument("--git-user-name", default=None)
     shell.add_argument("--git-user-email", default=None)
     add_sign_import_args(shell)
@@ -430,8 +433,8 @@ def context(args: argparse.Namespace) -> Config:
     return load_config(repo_root(args))
 
 
-def selected_driver_id(args: argparse.Namespace) -> str:
-    return getattr(args, "driver_id", "codex")
+def selected_driver_id(args: argparse.Namespace) -> DriverId:
+    return canonical_driver_id(getattr(args, "driver_id", "codex"))
 
 
 def repo_root(args: argparse.Namespace) -> Path:

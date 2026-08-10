@@ -5,6 +5,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .domain import DriverId, SelinuxMode, SELINUX_MODES
 from .drivers import (
     CommonDriverSettings,
     all_drivers,
@@ -20,13 +21,13 @@ CONFIG_FILE = "agentbox.toml"
 class Config:
     repo_root: Path
     run_store: Path
-    selinux: str
+    selinux: SelinuxMode
     git_user_name: str | None
     git_user_email: str | None
     sign_imports: bool
-    harnesses: dict[str, CommonDriverSettings] = field(default_factory=dict)
+    harnesses: dict[DriverId, CommonDriverSettings] = field(default_factory=dict)
 
-    def driver_settings(self, driver_id: str) -> CommonDriverSettings:
+    def driver_settings(self, driver_id: str | DriverId) -> CommonDriverSettings:
         canonical = canonical_driver_id(driver_id)
         try:
             return self.harnesses[canonical]
@@ -42,15 +43,6 @@ def default_toml() -> str:
     return render_template("agentbox.toml", {"DRIVER_SECTIONS": driver_sections})
 
 
-def _get(table: dict[str, object], dotted: str, default: object = None) -> object:
-    current: object = table
-    for part in dotted.split("."):
-        if not isinstance(current, dict) or part not in current:
-            return default
-        current = current[part]
-    return current
-
-
 def load_config(repo_root: Path) -> Config:
     repo_root = repo_root.resolve()
     path = repo_root / CONFIG_FILE
@@ -58,12 +50,23 @@ def load_config(repo_root: Path) -> Config:
     if path.exists():
         data = tomllib.loads(path.read_text())
 
-    run_store_raw = _get(data, "runtime.run_store", ".agentbox/runs")
-    harnesses = {}
+    allowed_sections = {"runtime", "git", *(str(driver.id) for driver in all_drivers())}
+    unknown_sections = sorted(set(data) - allowed_sections)
+    if unknown_sections:
+        raise ValueError(f"agentbox.toml: {unknown_sections[0]} is not a valid section")
+
+    runtime = _table(data, "runtime")
+    git = _table(data, "git")
+    _reject_unknown(runtime, {"run_store", "selinux"}, "runtime")
+    _reject_unknown(git, {"user_name", "user_email", "sign_imports"}, "git")
+    run_store_raw = _string(runtime, "run_store", ".agentbox/runs", "runtime")
+    selinux_raw = _string(runtime, "selinux", "auto", "runtime")
+    if selinux_raw not in SELINUX_MODES:
+        values = ", ".join(SELINUX_MODES)
+        raise ValueError(f"agentbox.toml: runtime.selinux must be one of {values}")
+    harnesses: dict[DriverId, CommonDriverSettings] = {}
     for driver in all_drivers():
-        section = data.get(driver.id, {})
-        if not isinstance(section, dict):
-            section = {}
+        section = _table(data, driver.id)
         settings = driver.load_settings(section, os.environ)
         if not isinstance(settings, CommonDriverSettings):
             raise TypeError(f"driver {driver.id} returned invalid settings")
@@ -77,23 +80,54 @@ def load_config(repo_root: Path) -> Config:
     return Config(
         repo_root=repo_root,
         run_store=run_store,
-        selinux=str(_get(data, "runtime.selinux", "auto")),
-        git_user_name=_optional_str(_get(data, "git.user_name")),
-        git_user_email=_optional_str(_get(data, "git.user_email")),
-        sign_imports=bool(_get(data, "git.sign_imports", False)),
+        selinux=selinux_raw,
+        git_user_name=_optional_string(git, "user_name", "git"),
+        git_user_email=_optional_string(git, "user_email", "git"),
+        sign_imports=_boolean(git, "sign_imports", False, "git"),
         harnesses=harnesses,
     )
 
 
-def _resolve_repo_path(repo_root: Path, value: object) -> Path:
-    path = Path(str(value)).expanduser()
+def _resolve_repo_path(repo_root: Path, value: str) -> Path:
+    path = Path(value).expanduser()
     if path.is_absolute():
         return path
     return repo_root / path
 
 
-def _optional_str(value: object) -> str | None:
-    if value is None:
+def _table(data: dict[str, object], key: str | DriverId) -> dict[str, object]:
+    value = data.get(key, {})
+    if not isinstance(value, dict):
+        raise ValueError(f"agentbox.toml: {key} must be a table")
+    if not all(isinstance(item, str) for item in value):
+        raise ValueError(f"agentbox.toml: {key} contains a non-string key")
+    return value
+
+
+def _reject_unknown(table: dict[str, object], allowed: set[str], path: str) -> None:
+    unknown = sorted(set(table) - allowed)
+    if unknown:
+        raise ValueError(f"agentbox.toml: {path}.{unknown[0]} is not a valid setting")
+
+
+def _string(table: dict[str, object], key: str, default: str, path: str) -> str:
+    value = table.get(key, default)
+    if not isinstance(value, str):
+        raise ValueError(f"agentbox.toml: {path}.{key} must be a string")
+    return value
+
+
+def _optional_string(table: dict[str, object], key: str, path: str) -> str | None:
+    if key not in table:
         return None
-    text = str(value)
-    return text if text else None
+    value = table[key]
+    if not isinstance(value, str):
+        raise ValueError(f"agentbox.toml: {path}.{key} must be a string")
+    return value or None
+
+
+def _boolean(table: dict[str, object], key: str, default: bool, path: str) -> bool:
+    value = table.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"agentbox.toml: {path}.{key} must be a boolean")
+    return value

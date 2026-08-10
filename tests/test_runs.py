@@ -97,6 +97,55 @@ class RunsTests(unittest.TestCase):
 
             self.assertEqual(metadata.driver, "codex")
 
+    def test_old_metadata_defaults_containerfile_to_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run-a"
+            run_dir.mkdir()
+            (run_dir / runs.METADATA_FILE).write_text(
+                json.dumps(
+                    {
+                        "id": "run-a", "created_at": "now", "original_repo": "repo",
+                        "run_repo": "run-repo", "base_branch": "main", "base_head": "a" * 40,
+                        "image": "agentbox-codex:test",
+                    }
+                )
+            )
+            self.assertIsNone(runs.read_metadata(run_dir).containerfile)
+
+    def test_metadata_rejects_invalid_shapes_and_unknown_drivers(self):
+        valid = {
+            "id": "run-a", "created_at": "now", "original_repo": "repo", "run_repo": "run-repo",
+            "base_branch": "main", "base_head": "a" * 40, "image": "agentbox-codex:test",
+        }
+        cases = (
+            ([], "must be an object"),
+            ({}, "missing required field"),
+            ({**valid, "id": 1}, "field id must be a string"),
+            ({**valid, "containerfile": 1}, "containerfile must be a string or null"),
+            ({**valid, "driver": "unknown"}, "unknown driver"),
+            ({**valid, "extra": True}, "unknown field"),
+        )
+        for data, message in cases:
+            with self.subTest(data=data), tempfile.TemporaryDirectory() as tmp:
+                run_dir = Path(tmp)
+                (run_dir / runs.METADATA_FILE).write_text(json.dumps(data))
+                with self.assertRaisesRegex((ValueError, RuntimeError), message):
+                    runs.read_metadata(run_dir)
+
+    def test_metadata_canonicalizes_driver_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / runs.METADATA_FILE).write_text(
+                json.dumps(
+                    {
+                        "id": "run-a", "created_at": "now", "original_repo": "repo",
+                        "run_repo": "run-repo", "base_branch": "main", "base_head": "a" * 40,
+                        "image": "agentbox-kilo:test", "driver": "kilocode",
+                    }
+                )
+            )
+            self.assertEqual(runs.read_metadata(run_dir).driver, "kilo")
+
 
 if __name__ == "__main__":
     unittest.main()
