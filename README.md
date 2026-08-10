@@ -119,6 +119,11 @@ uv run agentbox kilo run --image localhost/custom-kilo:dev
 The override is passed directly to Podman and recorded in run metadata as-is;
 `agentbox` does not check, pull, or build it first.
 
+If a dry-run would need to generate a Containerfile, digest resolution is
+deferred and the printed managed-image tag contains `<containerfile-digest>`.
+That placeholder describes the eventual content-addressed tag but cannot be
+copied from dry-run output to pre-build the image.
+
 If the checkout is dirty, the CLI prompts before copying dirty file contents
 into the isolated clone. In non-interactive use, choose explicitly:
 
@@ -181,6 +186,9 @@ Kilo launches as:
 ```bash
 kilo [<prompt>]
 ```
+
+Both managed images include uv so harness sessions can run Python project setup
+and test commands; Kilo itself does not require uv.
 
 These full-permission modes are safe only because they run against the isolated
 clone, not the original checkout.

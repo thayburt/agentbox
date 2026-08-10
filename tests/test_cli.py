@@ -59,9 +59,11 @@ class CliRunPreparationTests(unittest.TestCase):
             # treating every base image reference as already resolved.
             with mock.patch(
                 "agentbox.podman.resolve_pinned_base_image", side_effect=lambda ref: ref
-            ):
+            ) as resolve:
                 with self.quiet_output():
                     status = cli.cmd_init(args)
+
+            resolve.assert_called_once_with("ubuntu:24.04")
 
             containerfile = root / ".agentbox" / "codex" / "Containerfile"
             kilo_containerfile = root / ".agentbox" / "kilo" / "Containerfile"
@@ -91,6 +93,24 @@ class CliRunPreparationTests(unittest.TestCase):
             self.assertEqual(containerfile.read_text(), "custom\n")
             self.assertEqual(kilo_containerfile.read_text(), "custom kilo\n")
             self.assertEqual(kilo_config.read_text(), "custom\n")
+
+    def test_init_without_podman_writes_unpinned_containerfiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            errors = io.StringIO()
+
+            with (
+                mock.patch("agentbox.podman.run", side_effect=FileNotFoundError("podman")),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(errors),
+            ):
+                status = cli.cmd_init(self.args(repo=root))
+
+            self.assertEqual(status, 0)
+            for driver_id in ("codex", "kilo"):
+                containerfile = root / ".agentbox" / driver_id / "Containerfile"
+                self.assertEqual(containerfile.read_text().splitlines()[0], "FROM ubuntu:24.04")
+            self.assertIn("writing an unpinned Containerfile", errors.getvalue())
 
     def test_kilo_config_conflict_warns_during_dry_run(self):
         with tempfile.TemporaryDirectory() as tmp:

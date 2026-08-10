@@ -143,6 +143,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         gitignore_path.write_text(render_template("gitignore", {}))
         print(f"created {gitignore_path}")
     config = load_config(root)
+    resolved_base_images: dict[str, str | None] = {}
     for driver in all_drivers():
         settings = config.driver_settings(driver.id)
         for init_file in driver.init_files(settings):
@@ -157,7 +158,11 @@ def cmd_init(args: argparse.Namespace) -> int:
         if containerfile.exists():
             print(f"{containerfile} already exists")
         else:
-            podman.ensure_harness_containerfile(config, driver_id=driver.id)
+            podman.ensure_harness_containerfile(
+                config,
+                driver_id=driver.id,
+                resolved_base_images=resolved_base_images,
+            )
             print(f"created {containerfile}")
     return 0
 

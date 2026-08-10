@@ -137,8 +137,7 @@ def current_managed_image(config: Config, *, dry_run: bool = False, driver_id: s
     if dry_run and not path.exists():
         settings = config.driver_settings(driver_id)
         return f"{settings.image_name}:{_DRY_RUN_IMAGE_TAG}"
-    else:
-        digest = containerfile_digest(path)
+    digest = containerfile_digest(path)
     return harness_image_name(config, digest, driver_id=driver_id)
 
 
@@ -199,7 +198,13 @@ def remove_image(image: str) -> None:
     subprocess.run(["podman", "rmi", image], check=True)
 
 
-def ensure_harness_containerfile(config: Config, *, driver_id: str, dry_run: bool = False) -> Path:
+def ensure_harness_containerfile(
+    config: Config,
+    *,
+    driver_id: str,
+    dry_run: bool = False,
+    resolved_base_images: dict[str, str | None] | None = None,
+) -> Path:
     driver = get_driver(driver_id)
     path = harness_containerfile_path(config, driver_id=driver.id)
     if path.exists():
@@ -210,7 +215,14 @@ def ensure_harness_containerfile(config: Config, *, driver_id: str, dry_run: boo
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
     settings = config.driver_settings(driver.id)
-    pinned = resolve_pinned_base_image(settings.base_image)
+    if resolved_base_images is None:
+        pinned = resolve_pinned_base_image(settings.base_image)
+    else:
+        if settings.base_image not in resolved_base_images:
+            resolved_base_images[settings.base_image] = resolve_pinned_base_image(
+                settings.base_image
+            )
+        pinned = resolved_base_images[settings.base_image]
     if pinned is None:
         print(
             "agentbox: warning: could not resolve a registry digest for base image "
@@ -237,8 +249,11 @@ def resolve_pinned_base_image(base_image: str) -> str | None:
     if "@" in base_image:
         return base_image
     print(f"agentbox: resolving registry digest for base image {base_image!r}", file=sys.stderr)
-    run(["podman", "pull", base_image], check=False)
-    result = run(["podman", "image", "inspect", base_image], check=False)
+    try:
+        pull_result = run(["podman", "pull", base_image], check=False)
+        result = run(["podman", "image", "inspect", base_image], check=False)
+    except OSError:
+        return None
     if result.returncode != 0:
         return None
     try:
@@ -250,16 +265,45 @@ def resolve_pinned_base_image(base_image: str) -> str | None:
     info = images[0]
     instance_digest = info.get("Digest")
     repo_digests = [
-        entry.rsplit("@", 1)[-1] for entry in info.get("RepoDigests") or [] if "@" in entry
+        entry.rsplit("@", 1) for entry in info.get("RepoDigests") or [] if "@" in entry
     ]
+    requested_repository = _normalized_image_repository(base_image)
+    matching_repo_digests = [
+        (repository, digest)
+        for repository, digest in repo_digests
+        if _normalized_image_repository(repository) == requested_repository
+    ]
+    repo_digests = matching_repo_digests or repo_digests
     # Pulling through a manifest list records both the list digest and the
     # selected instance digest; only registry-sourced digests are usable in a
     # FROM line, so locally built images (no RepoDigests) yield no pin.
-    candidates = [digest for digest in repo_digests if digest != instance_digest] or repo_digests
-    for candidate in candidates:
-        if _BASE_IMAGE_DIGEST.match(candidate):
-            return f"{base_image}@{candidate}"
+    candidates = [
+        digest for _repository, digest in repo_digests if digest != instance_digest
+    ] or [digest for _repository, digest in repo_digests]
+    for digest in candidates:
+        if _BASE_IMAGE_DIGEST.match(digest):
+            if pull_result.returncode != 0:
+                print(
+                    "agentbox: warning: podman pull failed for base image "
+                    f"{base_image!r}; using a cached registry digest",
+                    file=sys.stderr,
+                )
+            return f"{base_image}@{digest}"
     return None
+
+
+def _normalized_image_repository(image: str) -> str:
+    repository = image.rsplit("@", 1)[0]
+    final_slash = repository.rfind("/")
+    final_colon = repository.rfind(":")
+    if final_colon > final_slash:
+        repository = repository[:final_colon]
+    first_component = repository.split("/", 1)[0]
+    if "." not in first_component and ":" not in first_component and first_component != "localhost":
+        repository = f"docker.io/{repository}"
+    if repository.count("/") == 1 and repository.startswith("docker.io/"):
+        repository = repository.replace("docker.io/", "docker.io/library/", 1)
+    return repository
 
 
 def containerfile_digest(path: Path) -> str:

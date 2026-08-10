@@ -513,6 +513,7 @@ class PodmanTests(unittest.TestCase):
 class BaseImagePinningTests(unittest.TestCase):
     INSTANCE_DIGEST = "sha256:" + "1" * 64
     LIST_DIGEST = "sha256:" + "2" * 64
+    OTHER_LIST_DIGEST = "sha256:" + "3" * 64
 
     def test_prepinned_references_are_used_verbatim(self):
         references = (
@@ -541,6 +542,22 @@ class BaseImagePinningTests(unittest.TestCase):
         self.assertEqual(resolved, f"ubuntu:24.04@{self.LIST_DIGEST}")
         self.assertEqual(run_mock.call_args_list[0].args[0], ["podman", "pull", "ubuntu:24.04"])
 
+    def test_prefers_digest_from_requested_repository(self):
+        payload = [
+            {
+                "Digest": self.INSTANCE_DIGEST,
+                "RepoDigests": [
+                    f"mirror.example.com/ubuntu@{self.OTHER_LIST_DIGEST}",
+                    f"docker.io/library/ubuntu@{self.LIST_DIGEST}",
+                    f"docker.io/library/ubuntu@{self.INSTANCE_DIGEST}",
+                ],
+            }
+        ]
+        with mock.patch("agentbox.podman.run", side_effect=self.fake_run(payload)):
+            resolved = self.resolve("ubuntu:24.04")
+
+        self.assertEqual(resolved, f"ubuntu:24.04@{self.LIST_DIGEST}")
+
     def test_single_arch_image_uses_its_manifest_digest(self):
         payload = [
             {
@@ -560,10 +577,19 @@ class BaseImagePinningTests(unittest.TestCase):
                 "RepoDigests": [f"docker.io/library/ubuntu@{self.INSTANCE_DIGEST}"],
             }
         ]
-        with mock.patch("agentbox.podman.run", side_effect=self.fake_run(payload, pull_rc=1)):
-            resolved = self.resolve("ubuntu:24.04")
+        stderr = io.StringIO()
+        with (
+            mock.patch("agentbox.podman.run", side_effect=self.fake_run(payload, pull_rc=1)),
+            contextlib.redirect_stderr(stderr),
+        ):
+            resolved = podman.resolve_pinned_base_image("ubuntu:24.04")
 
         self.assertEqual(resolved, f"ubuntu:24.04@{self.INSTANCE_DIGEST}")
+        self.assertIn("using a cached registry digest", stderr.getvalue())
+
+    def test_missing_podman_yields_no_pin(self):
+        with mock.patch("agentbox.podman.run", side_effect=FileNotFoundError("podman")):
+            self.assertIsNone(self.resolve("ubuntu:24.04"))
 
     def test_locally_built_image_yields_no_pin(self):
         payload = [{"Digest": self.INSTANCE_DIGEST, "RepoDigests": []}]
