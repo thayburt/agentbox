@@ -1,27 +1,24 @@
 from __future__ import annotations
 
 import dataclasses
-import json
-from pathlib import Path
 import hashlib
+import json
 import posixpath
 import re
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 from .config import Config
 from .drivers import MountSpec, get_driver
-
 
 _BASE_IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DRY_RUN_IMAGE_TAG = "<containerfile-digest>"
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check
-    )
+    return subprocess.run(args, text=True, capture_output=True, check=check)
 
 
 def podman_version() -> str | None:
@@ -124,9 +121,8 @@ def ensure_containerignore(context: Path) -> None:
 def image_exists(image: str) -> bool:
     result = subprocess.run(
         ["podman", "image", "exists", image],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
         text=True,
+        capture_output=True,
         check=False,
     )
     return result.returncode == 0
@@ -264,9 +260,7 @@ def resolve_pinned_base_image(base_image: str) -> str | None:
         return None
     info = images[0]
     instance_digest = info.get("Digest")
-    repo_digests = [
-        entry.rsplit("@", 1) for entry in info.get("RepoDigests") or [] if "@" in entry
-    ]
+    repo_digests = [entry.rsplit("@", 1) for entry in info.get("RepoDigests") or [] if "@" in entry]
     requested_repository = _normalized_image_repository(base_image)
     matching_repo_digests = [
         (repository, digest)
@@ -277,9 +271,9 @@ def resolve_pinned_base_image(base_image: str) -> str | None:
     # Pulling through a manifest list records both the list digest and the
     # selected instance digest; only registry-sourced digests are usable in a
     # FROM line, so locally built images (no RepoDigests) yield no pin.
-    candidates = [
-        digest for _repository, digest in repo_digests if digest != instance_digest
-    ] or [digest for _repository, digest in repo_digests]
+    candidates = [digest for _repository, digest in repo_digests if digest != instance_digest] or [
+        digest for _repository, digest in repo_digests
+    ]
     for digest in candidates:
         if _BASE_IMAGE_DIGEST.match(digest):
             if pull_result.returncode != 0:

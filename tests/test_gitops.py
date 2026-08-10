@@ -1,7 +1,7 @@
-from pathlib import Path
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 from agentbox import gitops
 from tests.helpers import configure_fake_signing, configure_user, git, git_output, init_repo

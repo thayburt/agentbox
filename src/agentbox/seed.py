@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shutil
 import stat
 import sys
 import tempfile
+from pathlib import Path
 
 from .config import Config
 from .drivers import RunSeedFileSpec, get_driver
@@ -33,15 +33,16 @@ def copy_seed_file(seed: RunSeedFileSpec) -> None:
         temp_fd, temp_name = tempfile.mkstemp(dir=seed.destination.parent)
         temp_path = Path(temp_name)
         try:
-            with os.fdopen(source_fd, "rb", closefd=False) as source_file:
-                with os.fdopen(temp_fd, "wb") as temp_file:
-                    shutil.copyfileobj(source_file, temp_file)
-                    temp_file.flush()
-                    os.fchmod(temp_file.fileno(), stat.S_IMODE(source_stat.st_mode))
-                    os.utime(
-                        temp_file.fileno(),
-                        ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns),
-                    )
+            with os.fdopen(source_fd, "rb", closefd=False) as source_file, os.fdopen(
+                temp_fd, "wb"
+            ) as temp_file:
+                shutil.copyfileobj(source_file, temp_file)
+                temp_file.flush()
+                os.fchmod(temp_file.fileno(), stat.S_IMODE(source_stat.st_mode))
+                os.utime(
+                    temp_file.fileno(),
+                    ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns),
+                )
             os.link(temp_path, seed.destination)
         finally:
             temp_path.unlink(missing_ok=True)

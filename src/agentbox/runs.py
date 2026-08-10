@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
-from pathlib import Path
 import json
 import secrets
 import sys
-
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 # run.json is trusted host input because run directories are never mounted into
 # containers. If that boundary changes, metadata parsing must become defensive.
@@ -27,7 +26,7 @@ class RunMetadata:
 
 
 def new_run_id() -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     return f"{stamp}-{secrets.token_hex(3)}"
 
 
@@ -44,7 +43,7 @@ def create_metadata(
 ) -> RunMetadata:
     return RunMetadata(
         id=run_id,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
         original_repo=str(original_repo),
         run_repo=str(run_repo),
         base_branch=base_branch,

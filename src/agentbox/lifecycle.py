@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 from . import gitops, podman, runs
 from .config import Config
 from .drivers import get_driver
 from .seed import seed_run_files, snapshot_containerfile
-
 
 LOG_PREVIEW_LIMIT = 20
 
@@ -357,4 +356,4 @@ def run_container(
         run_repo,
         settings.workspace_folder,
     )
-    return subprocess.run(args).returncode
+    return subprocess.run(args, check=False).returncode

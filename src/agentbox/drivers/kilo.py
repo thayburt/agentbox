@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
-from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec, RunSeedFileSpec
 from ..template import read_template, render_template
-
+from .base import CommonDriverSettings, Diagnostic, InitFileSpec, MountSpec, RunSeedFileSpec
 
 AGENTBOX_CONFIG_RELATIVE_PATH = Path(".agentbox/kilo/kilo.jsonc")
 KILO_HOME = "/home/ubuntu"
@@ -218,9 +217,12 @@ class KiloDriver:
         _settings(settings)
         if host_env.get("KILO_CONFIG") and (repo_root / AGENTBOX_CONFIG_RELATIVE_PATH).exists():
             return [
-                "agentbox: warning: host "
-                f"KILO_CONFIG={host_env['KILO_CONFIG']} is ignored inside Kilo containers because "
-                ".agentbox/kilo/kilo.jsonc is mounted as KILO_CONFIG"
+                (
+                    "agentbox: warning: host "
+                    f"KILO_CONFIG={host_env['KILO_CONFIG']} is ignored inside "
+                    "Kilo containers because "
+                    ".agentbox/kilo/kilo.jsonc is mounted as KILO_CONFIG"
+                )
             ]
         return []
 

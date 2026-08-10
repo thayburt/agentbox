@@ -1,7 +1,7 @@
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from agentbox.config import default_toml, load_config
@@ -149,9 +149,10 @@ codex_home = "/tmp/codex-home"
             self.assertEqual(diagnostics[-1].severity, "error")
 
     def test_codex_home_environment_default_is_preserved(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.dict(os.environ, {"CODEX_HOME": "/tmp/codex-env"}):
-                config = load_config(Path(tmp))
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"CODEX_HOME": "/tmp/codex-env"}
+        ):
+            config = load_config(Path(tmp))
 
         self.assertEqual(config.driver_settings("codex").codex_home, Path("/tmp/codex-env"))
 

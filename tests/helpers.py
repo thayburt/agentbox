@@ -1,7 +1,7 @@
 """Shared helpers for tests that operate on real git repositories."""
 
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 
 def git(cwd: Path, *args: str) -> None:

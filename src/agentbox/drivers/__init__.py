@@ -4,7 +4,6 @@ from .base import CommonDriverSettings, Diagnostic, HarnessDriver, MountSpec, Ru
 from .codex import CodexDriver, CodexSettings
 from .kilo import KiloDriver, KiloSettings
 
-
 DRIVERS: tuple[HarnessDriver, ...] = (CodexDriver(), KiloDriver())
 _BY_ID = {driver.id: driver for driver in DRIVERS}
 _ALIASES = {alias: driver.id for driver in DRIVERS for alias in driver.aliases}

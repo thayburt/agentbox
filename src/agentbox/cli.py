@@ -2,21 +2,16 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
-from .template import render_template
-
+from . import gitops, lifecycle, podman, runs
 from .config import CONFIG_FILE, Config, default_toml, load_config
-from . import gitops
-from . import lifecycle
-from . import podman
-from . import runs
 from .drivers import Diagnostic, all_drivers, canonical_driver_id, get_driver
-
+from .template import render_template
 
 PULL_CHOICES = ("prompt", "branch", "ff-only", "later")
 
@@ -33,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
         if exc.stderr:
             print(exc.stderr, file=sys.stderr, end="")
         return exc.returncode
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         print(f"agentbox: {exc}", file=sys.stderr)
         return 1
 

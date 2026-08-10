@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from importlib.resources import files
 import re
-from typing import Mapping
-
+from collections.abc import Mapping
+from importlib.resources import files
 
 _TOKEN = re.compile(r"@@([A-Z][A-Z0-9_]*)@@")
 

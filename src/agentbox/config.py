@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import os
-from pathlib import Path
 import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from .drivers import (
     CommonDriverSettings,
@@ -12,7 +12,6 @@ from .drivers import (
     get_driver,
 )
 from .template import render_template
-
 
 CONFIG_FILE = "agentbox.toml"
 
@@ -67,7 +66,7 @@ def load_config(repo_root: Path) -> Config:
             section = {}
         settings = driver.load_settings(section, os.environ)
         if not isinstance(settings, CommonDriverSettings):
-            raise RuntimeError(f"driver {driver.id} returned invalid settings")
+            raise TypeError(f"driver {driver.id} returned invalid settings")
         harnesses[driver.id] = settings
 
     run_store = _resolve_repo_path(repo_root, run_store_raw)

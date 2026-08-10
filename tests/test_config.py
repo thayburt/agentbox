@@ -1,7 +1,7 @@
-from pathlib import Path
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from agentbox.config import load_config
@@ -14,13 +14,14 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.run_store, Path(tmp) / ".agentbox" / "runs")
 
     def test_codex_home_prefers_environment(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.dict(os.environ, {"CODEX_HOME": "/tmp/codex-home"}):
-                config = load_config(Path(tmp))
-                self.assertEqual(
-                    config.driver_settings("codex").codex_home,
-                    Path("/tmp/codex-home"),
-                )
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"CODEX_HOME": "/tmp/codex-home"}
+        ):
+            config = load_config(Path(tmp))
+            self.assertEqual(
+                config.driver_settings("codex").codex_home,
+                Path("/tmp/codex-home"),
+            )
 
     def test_kilo_defaults_load(self):
         with tempfile.TemporaryDirectory() as tmp:
