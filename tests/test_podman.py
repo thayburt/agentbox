@@ -8,9 +8,9 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from agentbox import podman
+from agentbox import podman, seed
 from agentbox.config import Config
-from agentbox.drivers import CodexSettings, MountSpec, get_driver
+from agentbox.drivers import CodexSettings, MountSpec, RunSeedDirectorySpec, get_driver
 from agentbox.podman import render_run_command, volume_suffix
 
 
@@ -217,6 +217,101 @@ class PodmanTests(unittest.TestCase):
 
             self.assertEqual(images, ["agentbox-kilo:other", "localhost/agentbox-kilo:same"])
 
+    def test_copy_image_directory_uses_temporary_container_and_atomic_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "run" / "home"
+            spec = RunSeedDirectorySpec("/home/ubuntu", destination, "Kilo home")
+
+            def fake_run(args, check=True):
+                if args[1] == "create":
+                    return subprocess.CompletedProcess(args, 0, stdout="container-id\n", stderr="")
+                if args[1] == "cp":
+                    Path(args[-1], ".profile").write_text("image profile\n")
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+            with mock.patch("agentbox.seed.podman.run", side_effect=fake_run) as run_mock:
+                seed.copy_image_directory("agentbox-kilo:test", spec)
+
+            self.assertEqual((destination / ".profile").read_text(), "image profile\n")
+            calls = [call.args[0] for call in run_mock.call_args_list]
+            self.assertEqual(
+                calls[0],
+                [
+                    "podman",
+                    "create",
+                    "--userns=keep-id",
+                    "--image-volume=ignore",
+                    "agentbox-kilo:test",
+                    "true",
+                ],
+            )
+            self.assertEqual(
+                calls[1][0:4],
+                ["podman", "cp", "--archive=false", "container-id:/home/ubuntu/."],
+            )
+            self.assertEqual(calls[2], ["podman", "rm", "container-id"])
+            self.assertEqual(list(destination.parent.glob(".home-*")), [])
+
+    def test_copy_image_directory_cleans_up_after_copy_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "run" / "home"
+            spec = RunSeedDirectorySpec("/home/ubuntu", destination, "Kilo home")
+
+            def fake_run(args, check=True):
+                if args[1] == "create":
+                    return subprocess.CompletedProcess(args, 0, stdout="container-id\n", stderr="")
+                if args[1] == "cp":
+                    raise subprocess.CalledProcessError(1, args)
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+            with mock.patch("agentbox.seed.podman.run", side_effect=fake_run) as run_mock, (
+                self.assertRaises(subprocess.CalledProcessError)
+            ):
+                seed.copy_image_directory("agentbox-kilo:test", spec)
+
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(destination.parent.glob(".home-*")), [])
+            self.assertEqual(
+                run_mock.call_args_list[-1].args[0],
+                ["podman", "rm", "--force", "container-id"],
+            )
+
+    def test_copy_image_directory_forces_cleanup_after_remove_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "run" / "home"
+            spec = RunSeedDirectorySpec("/home/ubuntu", destination, "Kilo home")
+
+            def fake_run(args, check=True):
+                if args[1] == "create":
+                    return subprocess.CompletedProcess(args, 0, stdout="container-id\n", stderr="")
+                returncode = 1 if args == ["podman", "rm", "container-id"] else 0
+                return subprocess.CompletedProcess(args, returncode, stdout="", stderr="")
+
+            with mock.patch("agentbox.seed.podman.run", side_effect=fake_run) as run_mock, (
+                self.assertRaisesRegex(RuntimeError, "could not remove temporary container")
+            ):
+                seed.copy_image_directory("agentbox-kilo:test", spec)
+
+            self.assertFalse(destination.exists())
+            self.assertEqual(
+                run_mock.call_args_list[-1].args[0],
+                ["podman", "rm", "--force", "container-id"],
+            )
+
+    def test_copy_image_directory_preserves_existing_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "run" / "home"
+            destination.mkdir(parents=True)
+            marker = destination / "state"
+            marker.write_text("existing\n")
+            spec = RunSeedDirectorySpec("/home/ubuntu", destination, "Kilo home")
+
+            with mock.patch("agentbox.seed.podman.run") as run_mock:
+                seed.copy_image_directory("agentbox-kilo:test", spec)
+
+            run_mock.assert_not_called()
+            self.assertEqual(marker.read_text(), "existing\n")
+
     def test_render_run_command_sets_kilo_home_env_and_mounts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -246,12 +341,12 @@ class PodmanTests(unittest.TestCase):
             self.assertNotIn(f"{config_home / 'kilo'}:/home/ubuntu/.config/kilo", cmd)
             self.assertIn(f"{data_home / 'kilo'}:/home/ubuntu/.local/share/kilo:U", cmd)
             self.assertNotIn(str(state_home), cmd)
-            self.assertIn(f"{run_repo.parent / 'cache'}:/home/ubuntu/.cache:U", cmd)
+            self.assertIn(f"{run_repo.parent / 'home'}:/home/ubuntu:U", cmd)
             self.assertFalse(any(str(cache_home) in item for item in cmd))
             self.assertIn("XDG_CACHE_HOME=/home/ubuntu/.cache", cmd)
-            self.assertIn(
-                f"{run_repo.parent / 'state'}:/home/ubuntu/.local/state:U",
-                cmd,
+            self.assertLess(
+                cmd.index(f"{run_repo.parent / 'home'}:/home/ubuntu:U"),
+                cmd.index(f"{data_home / 'kilo'}:/home/ubuntu/.local/share/kilo:U"),
             )
             self.assertFalse(any(item.startswith("KILO_CONFIG_CONTENT=") for item in cmd))
             self.assertEqual(cmd[-1], "exec kilo status")
@@ -307,8 +402,24 @@ class PodmanTests(unittest.TestCase):
             self.assertTrue((home / ".local" / "share" / "kilo").is_dir())
             self.assertFalse((home / ".local" / "state" / "kilo").exists())
             self.assertFalse((home / ".cache" / "kilo").exists())
-            self.assertTrue((run_repo.parent / "cache").is_dir())
-            self.assertTrue((run_repo.parent / "state").is_dir())
+            self.assertTrue((run_repo.parent / "home").is_dir())
+            self.assertTrue((run_repo.parent / "home" / ".local" / "share").is_dir())
+            self.assertFalse((run_repo.parent / "home" / ".local" / "state").exists())
+
+    def test_ensure_state_mounts_creates_nested_target_parent_in_closest_mount(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outer = MountSpec(root / "home", "/home/ubuntu", "directory", create=True)
+            middle = MountSpec(
+                root / "share", "/home/ubuntu/.local/share", "directory", create=True
+            )
+            inner = MountSpec(root / "data", "/home/ubuntu/.local/share/kilo/data", "directory")
+
+            podman.ensure_nested_mount_parents([outer, middle, inner])
+
+            self.assertTrue((outer.source / ".local").is_dir())
+            self.assertTrue((middle.source / "kilo").is_dir())
+            self.assertFalse((outer.source / ".local" / "share" / "kilo").exists())
 
     def test_ensure_state_mounts_creates_required_directories(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -345,12 +456,9 @@ class PodmanTests(unittest.TestCase):
                 driver_id="kilo",
             )
 
-            cache = run_repo.parent / "cache"
-            state = run_repo.parent / "state"
-            self.assertFalse(cache.exists())
-            self.assertFalse(state.exists())
-            self.assertIn(f"{cache.resolve()}:/home/ubuntu/.cache:U", cmd)
-            self.assertIn(f"{state.resolve()}:/home/ubuntu/.local/state:U", cmd)
+            home = run_repo.parent / "home"
+            self.assertFalse(home.exists())
+            self.assertIn(f"{home.resolve()}:/home/ubuntu:U", cmd)
 
     def test_kilo_run_state_mount_includes_selinux_suffix(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -368,11 +476,7 @@ class PodmanTests(unittest.TestCase):
                 )
 
             self.assertIn(
-                f"{run_repo.parent / 'state'}:/home/ubuntu/.local/state:U,Z",
-                cmd,
-            )
-            self.assertIn(
-                f"{run_repo.parent / 'cache'}:/home/ubuntu/.cache:U,Z",
+                f"{run_repo.parent / 'home'}:/home/ubuntu:U,Z",
                 cmd,
             )
 

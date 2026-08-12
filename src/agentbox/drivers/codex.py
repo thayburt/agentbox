@@ -11,6 +11,7 @@ from .base import (
     Diagnostic,
     InitFileSpec,
     MountSpec,
+    RunSeedDirectorySpec,
     RunSeedFileSpec,
     reject_unknown_settings,
     required_string,
@@ -98,6 +99,12 @@ class CodexDriver:
     def run_seed_files(
         self, settings: object, host_env: Mapping[str, str], run_dir: Path
     ) -> list[RunSeedFileSpec]:
+        del settings, host_env, run_dir
+        return []
+
+    def run_seed_directories(
+        self, settings: object, host_env: Mapping[str, str], run_dir: Path
+    ) -> list[RunSeedDirectorySpec]:
         del settings, host_env, run_dir
         return []
 

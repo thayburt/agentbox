@@ -7,8 +7,53 @@ import sys
 import tempfile
 from pathlib import Path
 
+from . import podman
 from .config import Config
-from .drivers import RunSeedFileSpec, get_driver
+from .drivers import RunSeedDirectorySpec, RunSeedFileSpec, get_driver
+
+
+def seed_run_directories(config: Config, driver_id: str, image: str, run_dir: Path) -> None:
+    driver = get_driver(driver_id)
+    settings = config.driver_settings(driver.id)
+    for seed in driver.run_seed_directories(settings, dict(os.environ), run_dir):
+        copy_image_directory(image, seed)
+
+
+def copy_image_directory(image: str, seed: RunSeedDirectorySpec) -> None:
+    destination = seed.destination
+    if destination.exists():
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
+    container_id: str | None = None
+    try:
+        result = podman.run(
+            ["podman", "create", "--userns=keep-id", "--image-volume=ignore", image, "true"]
+        )
+        container_id = result.stdout.strip()
+        if not container_id:
+            raise RuntimeError(f"could not create temporary container to seed {seed.description}")
+        podman.run(
+            [
+                "podman",
+                "cp",
+                "--archive=false",
+                f"{container_id}:{seed.source.rstrip('/')}/.",
+                str(staging.resolve()),
+            ]
+        )
+        remove = podman.run(["podman", "rm", container_id], check=False)
+        if remove.returncode != 0:
+            raise RuntimeError(
+                f"could not remove temporary container used to seed {seed.description}"
+            )
+        container_id = None
+        staging.rename(destination)
+    finally:
+        if container_id is not None:
+            podman.run(["podman", "rm", "--force", container_id], check=False)
+        if staging.exists():
+            shutil.rmtree(staging)
 
 
 def seed_run_files(config: Config, driver_id: str, run_dir: Path) -> None:

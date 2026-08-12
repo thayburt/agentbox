@@ -10,7 +10,7 @@ from . import gitops, podman, runs
 from .config import Config
 from .domain import DriverId, GitBranch, GitCommit, ImageRef
 from .drivers import get_driver
-from .seed import seed_run_files, snapshot_containerfile
+from .seed import seed_run_directories, seed_run_files, snapshot_containerfile
 
 LOG_PREVIEW_LIMIT = 20
 
@@ -78,6 +78,7 @@ def prepare_run(
     gitops.clone_repo(config.repo_root, run_repo, include_dirty=include_dirty)
     gitops.apply_git_identity(run_repo, resolved_identity)
     snapshot = snapshot_containerfile(run_dir, containerfile)
+    seed_run_directories(config, driver_id, image, run_dir)
     seed_run_files(config, driver_id, run_dir)
     metadata = runs.create_metadata(
         run_id,

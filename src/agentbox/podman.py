@@ -349,8 +349,8 @@ def render_run_command(
         args.extend(["-e", f"{key}={value}"])
     mounts = validated_state_mounts(
         [
-            *driver.state_mounts(settings, host_env),
             *driver.run_state_mounts(settings, host_env, run_repo.parent),
+            *driver.state_mounts(settings, host_env),
             *driver.config_mounts(settings, host_env, config.repo_root),
         ],
         workspace,
@@ -374,8 +374,8 @@ def ensure_state_mounts(
     workspace = workspace or settings.workspace_folder
     mounts = validated_state_mounts(
         [
-            *driver.state_mounts(settings, host_env),
             *driver.run_state_mounts(settings, host_env, run_repo.parent),
+            *driver.state_mounts(settings, host_env),
             *driver.config_mounts(settings, host_env, config.repo_root),
         ],
         workspace,
@@ -383,6 +383,25 @@ def ensure_state_mounts(
     for mount in mounts:
         if mount.kind == "directory" and mount.create:
             mount.source.expanduser().mkdir(parents=True, exist_ok=True)
+    ensure_nested_mount_parents(mounts)
+
+
+def ensure_nested_mount_parents(mounts: list[MountSpec]) -> None:
+    for mount in mounts:
+        target_parent = posixpath.dirname(posixpath.normpath(mount.target))
+        enclosing = [
+            candidate
+            for candidate in mounts
+            if candidate.kind == "directory"
+            and target_parent.startswith(posixpath.normpath(candidate.target) + "/")
+        ]
+        if not enclosing:
+            continue
+        parent_mount = max(
+            enclosing, key=lambda candidate: len(posixpath.normpath(candidate.target))
+        )
+        relative_parent = posixpath.relpath(target_parent, posixpath.normpath(parent_mount.target))
+        (parent_mount.source.expanduser() / relative_parent).mkdir(parents=True, exist_ok=True)
 
 
 def validated_state_mounts(

@@ -11,6 +11,7 @@ from .base import (
     Diagnostic,
     InitFileSpec,
     MountSpec,
+    RunSeedDirectorySpec,
     RunSeedFileSpec,
     reject_unknown_settings,
     required_string,
@@ -92,22 +93,13 @@ class KiloDriver:
         del host_env
         return [
             MountSpec(
-                run_dir / "cache",
-                f"{KILO_HOME}/.cache",
+                run_dir / "home",
+                KILO_HOME,
                 "directory",
                 create=True,
                 chown=True,
                 relabel="private",
-                description="per-run Kilo XDG cache",
-            ),
-            MountSpec(
-                run_dir / "state",
-                f"{KILO_HOME}/.local/state",
-                "directory",
-                create=True,
-                chown=True,
-                relabel="private",
-                description="per-run Kilo XDG state",
+                description="per-run Kilo home",
             ),
         ]
 
@@ -121,10 +113,17 @@ class KiloDriver:
                 _xdg_path(host_env, "XDG_STATE_HOME", home / ".local" / "state")
                 / "kilo"
                 / "model.json",
-                run_dir / "state" / "kilo" / "model.json",
+                run_dir / "home" / ".local" / "state" / "kilo" / "model.json",
                 "Kilo model selection",
             )
         ]
+
+    def run_seed_directories(
+        self, settings: object, host_env: Mapping[str, str], run_dir: Path
+    ) -> list[RunSeedDirectorySpec]:
+        _settings(settings)
+        del host_env
+        return [RunSeedDirectorySpec(KILO_HOME, run_dir / "home", "Kilo home")]
 
     def init_files(self, settings: object) -> list[InitFileSpec]:
         _settings(settings)

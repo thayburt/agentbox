@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from .base import CommonDriverSettings, Diagnostic, HarnessDriver, MountSpec, RunSeedFileSpec
+from .base import (
+    CommonDriverSettings,
+    Diagnostic,
+    HarnessDriver,
+    MountSpec,
+    RunSeedDirectorySpec,
+    RunSeedFileSpec,
+)
 from .codex import CodexDriver, CodexSettings
 from .kilo import KiloDriver, KiloSettings
 from ..domain import DriverId
@@ -38,6 +45,7 @@ __all__ = [
     "KiloDriver",
     "KiloSettings",
     "MountSpec",
+    "RunSeedDirectorySpec",
     "RunSeedFileSpec",
     "all_drivers",
     "canonical_driver_id",

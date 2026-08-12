@@ -200,15 +200,15 @@ Agentbox creates this mutable host-backed directory when needed; Podman assigns
 it to the user running Kilo; `doctor` reports its first-use absence as a warning.
 Host XDG cache and state are not mounted.
 
-Each saved run mounts `<run_store>/<run-id>/cache` at `/home/ubuntu/.cache` and
-`<run_store>/<run-id>/state` at `/home/ubuntu/.local/state`. Cache and state
-persist when re-entering the same run, are isolated from the host and other
-runs, and are removed together by `agentbox runs prune`. Existing host cache
-and state contents remain untouched and are never copied into runs, except that
-new Kilo runs snapshot an existing host `XDG_STATE_HOME/kilo/model.json` into
-their state tree. This optional seed is non-fatal if missing or unreadable, does
-not propagate later host changes, and is not applied retroactively to existing
-saved runs.
+Each saved run mounts `<run_store>/<run-id>/home` at `/home/ubuntu`. Everything
+Kilo writes under its home persists when re-entering the same run, is isolated
+from the host and other runs, and is removed by `agentbox runs prune`. Existing
+host home contents remain untouched and are never copied into runs. New runs
+initialize their home from `/home/ubuntu` in the selected image, then snapshot
+an existing host `XDG_STATE_HOME/kilo/model.json` into their home state tree.
+This optional model seed is non-fatal if missing or unreadable, does not
+propagate later host changes, and is not applied retroactively to existing saved
+runs.
 
 Kilo global configuration is mounted read-only: `XDG_CONFIG_HOME/kilo` (or
 `~/.config/kilo`), `~/.kilo`, `~/.kilocode`, and `KILO_CONFIG_DIR` when set.
