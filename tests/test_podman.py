@@ -61,6 +61,28 @@ class PodmanTests(unittest.TestCase):
 
             self.assertIn("--cap-drop=ALL", cmd)
             self.assertIn("--security-opt=no-new-privileges", cmd)
+            self.assertFalse(any(arg.startswith("--cap-add=") for arg in cmd))
+
+    def test_render_run_command_adds_configured_capabilities(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+            config = replace(
+                self.config(root), capabilities=("SYS_ADMIN", "SYS_CHROOT")
+            )
+
+            cmd = render_run_command(
+                config=config,
+                image="agentbox-codex:test",
+                run_repo=run_repo,
+                command="exec bash",
+                driver_id="codex",
+            )
+
+            self.assertIn("--cap-drop=ALL", cmd)
+            self.assertIn("--cap-add=SYS_ADMIN", cmd)
+            self.assertIn("--cap-add=SYS_CHROOT", cmd)
 
     def test_volume_suffix(self):
         self.assertEqual(volume_suffix("disabled"), "")

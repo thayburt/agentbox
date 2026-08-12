@@ -3,6 +3,7 @@
 [runtime]
 run_store = ".agentbox/runs"
 selinux = "auto" # auto, z, Z, or disabled
+capabilities = [] # Linux capabilities to add after dropping all capabilities
 
 @@DRIVER_SECTIONS@@
 

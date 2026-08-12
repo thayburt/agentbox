@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,7 @@ from .drivers import (
 from .template import render_template
 
 CONFIG_FILE = "agentbox.toml"
+CAPABILITY_PATTERN = re.compile(r"(?:CAP_)?[A-Za-z][A-Za-z0-9_]*\Z")
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,7 @@ class Config:
     git_user_name: str | None
     git_user_email: str | None
     sign_imports: bool
+    capabilities: tuple[str, ...] = ()
     harnesses: dict[DriverId, CommonDriverSettings] = field(default_factory=dict)
 
     def driver_settings(self, driver_id: str | DriverId) -> CommonDriverSettings:
@@ -57,10 +60,11 @@ def load_config(repo_root: Path) -> Config:
 
     runtime = _table(data, "runtime")
     git = _table(data, "git")
-    _reject_unknown(runtime, {"run_store", "selinux"}, "runtime")
+    _reject_unknown(runtime, {"run_store", "selinux", "capabilities"}, "runtime")
     _reject_unknown(git, {"user_name", "user_email", "sign_imports"}, "git")
     run_store_raw = _string(runtime, "run_store", ".agentbox/runs", "runtime")
     selinux_raw = _string(runtime, "selinux", "auto", "runtime")
+    capabilities = _capabilities(runtime)
     if selinux_raw not in SELINUX_MODES:
         values = ", ".join(SELINUX_MODES)
         raise ValueError(f"agentbox.toml: runtime.selinux must be one of {values}")
@@ -84,6 +88,7 @@ def load_config(repo_root: Path) -> Config:
         git_user_name=_optional_string(git, "user_name", "git"),
         git_user_email=_optional_string(git, "user_email", "git"),
         sign_imports=_boolean(git, "sign_imports", False, "git"),
+        capabilities=capabilities,
         harnesses=harnesses,
     )
 
@@ -131,3 +136,20 @@ def _boolean(table: dict[str, object], key: str, default: bool, path: str) -> bo
     if not isinstance(value, bool):
         raise ValueError(f"agentbox.toml: {path}.{key} must be a boolean")
     return value
+
+
+def _capabilities(table: dict[str, object]) -> tuple[str, ...]:
+    value = table.get("capabilities", [])
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError("agentbox.toml: runtime.capabilities must be an array of strings")
+
+    capabilities: list[str] = []
+    for item in value:
+        if not CAPABILITY_PATTERN.fullmatch(item):
+            raise ValueError(
+                f"agentbox.toml: runtime.capabilities contains invalid capability: {item!r}"
+            )
+        capability = item.upper().removeprefix("CAP_")
+        if capability not in capabilities:
+            capabilities.append(capability)
+    return tuple(capabilities)

@@ -56,6 +56,14 @@ Containers run with `--cap-drop=ALL` and
 package access. The isolation boundary is the unmounted host checkout together
 with rootless `--userns=keep-id`, not network isolation.
 
+Projects can opt into additional Linux capabilities after the default drop by
+setting `runtime.capabilities`, for example:
+
+```toml
+[runtime]
+capabilities = ["SYS_ADMIN", "SYS_CHROOT"]
+```
+
 ## Run Harnesses
 
 ```bash

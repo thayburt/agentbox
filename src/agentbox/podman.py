@@ -343,6 +343,8 @@ def render_run_command(
         "-v",
         f"{run_repo.resolve()}:{workspace}{run_repo_suffix}",
     ]
+    for capability in config.capabilities:
+        args.append(f"--cap-add={capability}")
     for key, value in driver.env(settings, host_env).items():
         args.extend(["-e", f"{key}={value}"])
     for key, value in driver.config_env(settings, host_env, config.repo_root).items():

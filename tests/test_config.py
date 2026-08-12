@@ -12,6 +12,18 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_config(Path(tmp))
             self.assertEqual(config.run_store, Path(tmp) / ".agentbox" / "runs")
+            self.assertEqual(config.capabilities, ())
+
+    def test_runtime_capabilities_are_normalized_and_deduplicated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agentbox.toml").write_text(
+                '[runtime]\ncapabilities = ["sys_admin", "CAP_SYS_CHROOT", "SYS_ADMIN"]\n'
+            )
+
+            config = load_config(root)
+
+            self.assertEqual(config.capabilities, ("SYS_ADMIN", "SYS_CHROOT"))
 
     def test_codex_home_prefers_environment(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
@@ -81,6 +93,14 @@ sign_imports = true
             ("[runtime]\nunknown = 'x'", "runtime.unknown is not a valid setting"),
             ("[runtime]\nrun_store = false", "runtime.run_store must be a string"),
             ("[runtime]\nselinux = 'invalid'", "runtime.selinux must be one of"),
+            (
+                "[runtime]\ncapabilities = 'SYS_ADMIN'",
+                "runtime.capabilities must be an array of strings",
+            ),
+            (
+                "[runtime]\ncapabilities = ['SYS-ADMIN']",
+                "runtime.capabilities contains invalid capability",
+            ),
             ("[git]\nsign_imports = 'false'", "git.sign_imports must be a boolean"),
             ("[codex]\nimage_name = 1", "codex.image_name must be a string"),
             ("[kilo]\nunknown = 'x'", "kilo.unknown is not a valid setting"),
