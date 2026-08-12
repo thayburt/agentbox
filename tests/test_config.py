@@ -4,7 +4,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from agentbox.config import load_config
+from agentbox.config import Config, load_config
+from agentbox.drivers import get_driver
 
 
 class ConfigTests(unittest.TestCase):
@@ -37,6 +38,26 @@ class ConfigTests(unittest.TestCase):
             config = load_config(root)
 
             self.assertEqual(config.security_options, ("unmask=ALL", " label=disable "))
+
+    def test_security_options_are_keyword_only_without_shifting_harnesses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            harnesses = {"codex": get_driver("codex").default_settings({})}
+
+            config = Config(
+                root,
+                root / "runs",
+                "disabled",
+                None,
+                None,
+                False,
+                (),
+                harnesses,
+                security_options=("unmask=ALL",),
+            )
+
+            self.assertIs(config.harnesses, harnesses)
+            self.assertEqual(config.security_options, ("unmask=ALL",))
 
     def test_codex_home_prefers_environment(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(

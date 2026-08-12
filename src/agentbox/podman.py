@@ -340,6 +340,20 @@ def render_run_command(
     ]
     security_options = dict.fromkeys(("no-new-privileges", *config.security_options))
     for option in security_options:
+        separator = "=" if "=" in option else ":"
+        key, found, value = option.partition(separator)
+        if key == "no-new-privileges" and found and value in {
+            "0",
+            "f",
+            "F",
+            "false",
+            "False",
+            "FALSE",
+        }:
+            raise ValueError(
+                "runtime.security_options cannot disable mandatory no-new-privileges: "
+                f"{option!r}"
+            )
         args.append(f"--security-opt={option}")
     args.extend(
         [

@@ -140,6 +140,27 @@ class PodmanTests(unittest.TestCase):
                 ],
             )
 
+    def test_render_run_command_rejects_disabling_no_new_privileges(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+
+            for separator in ("=", ":"):
+                for value in ("0", "f", "F", "false", "False", "FALSE"):
+                    option = f"no-new-privileges{separator}{value}"
+                    config = replace(self.config(root), security_options=(option,))
+                    with self.subTest(option=option), self.assertRaisesRegex(
+                        ValueError, "cannot disable mandatory no-new-privileges"
+                    ):
+                        render_run_command(
+                            config=config,
+                            image="agentbox-codex:test",
+                            run_repo=run_repo,
+                            command="exec bash",
+                            driver_id="codex",
+                        )
+
     def test_render_run_command_adds_configured_capabilities(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

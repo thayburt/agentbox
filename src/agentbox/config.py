@@ -28,8 +28,8 @@ class Config:
     git_user_email: str | None
     sign_imports: bool
     capabilities: tuple[str, ...] = ()
-    security_options: tuple[str, ...] = ()
     harnesses: dict[DriverId, CommonDriverSettings] = field(default_factory=dict)
+    security_options: tuple[str, ...] = field(default=(), kw_only=True)
 
     def driver_settings(self, driver_id: str | DriverId) -> CommonDriverSettings:
         canonical = canonical_driver_id(driver_id)
