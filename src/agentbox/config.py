@@ -5,7 +5,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .domain import DriverId, SelinuxMode, SELINUX_MODES
+from .domain import DriverId, SelinuxMode, UncommittedMode, SELINUX_MODES, UNCOMMITTED_MODES
 from .drivers import (
     CommonDriverSettings,
     all_drivers,
@@ -25,6 +25,8 @@ class Config:
     git_user_name: str | None
     git_user_email: str | None
     sign_imports: bool
+    uncommitted: UncommittedMode = "prompt"
+    commit_message_default: str | None = None
     harnesses: dict[DriverId, CommonDriverSettings] = field(default_factory=dict)
 
     def driver_settings(self, driver_id: str | DriverId) -> CommonDriverSettings:
@@ -58,12 +60,26 @@ def load_config(repo_root: Path) -> Config:
     runtime = _table(data, "runtime")
     git = _table(data, "git")
     _reject_unknown(runtime, {"run_store", "selinux"}, "runtime")
-    _reject_unknown(git, {"user_name", "user_email", "sign_imports"}, "git")
+    _reject_unknown(
+        git,
+        {
+            "user_name",
+            "user_email",
+            "sign_imports",
+            "uncommitted",
+            "commit_message_default",
+        },
+        "git",
+    )
     run_store_raw = _string(runtime, "run_store", ".agentbox/runs", "runtime")
     selinux_raw = _string(runtime, "selinux", "auto", "runtime")
     if selinux_raw not in SELINUX_MODES:
         values = ", ".join(SELINUX_MODES)
         raise ValueError(f"agentbox.toml: runtime.selinux must be one of {values}")
+    uncommitted_raw = _string(git, "uncommitted", "prompt", "git")
+    if uncommitted_raw not in UNCOMMITTED_MODES:
+        values = ", ".join(UNCOMMITTED_MODES)
+        raise ValueError(f"agentbox.toml: git.uncommitted must be one of {values}")
     harnesses: dict[DriverId, CommonDriverSettings] = {}
     for driver in all_drivers():
         section = _table(data, driver.id)
@@ -84,6 +100,8 @@ def load_config(repo_root: Path) -> Config:
         git_user_name=_optional_string(git, "user_name", "git"),
         git_user_email=_optional_string(git, "user_email", "git"),
         sign_imports=_boolean(git, "sign_imports", False, "git"),
+        uncommitted=uncommitted_raw,
+        commit_message_default=_optional_string(git, "commit_message_default", "git"),
         harnesses=harnesses,
     )
 

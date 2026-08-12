@@ -8,6 +8,16 @@ from tests.helpers import configure_fake_signing, configure_user, git, git_outpu
 
 
 class GitOpsTests(unittest.TestCase):
+    def test_has_staged_changes_distinguishes_index_from_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = init_repo(Path(tmp) / "repo")
+            (root / "unstaged.txt").write_text("unstaged\n")
+
+            self.assertFalse(gitops.has_staged_changes(root))
+
+            git(root, "add", "unstaged.txt")
+            self.assertTrue(gitops.has_staged_changes(root))
+
     def test_read_git_identity_from_repo_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"

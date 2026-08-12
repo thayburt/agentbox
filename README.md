@@ -175,6 +175,32 @@ uv run agentbox codex run --pull later
 uv run agentbox kilo run --pull later
 ```
 
+If the run finishes with uncommitted changes, interactive sessions first offer
+to stage and commit all changes, select changes with Git's interactive staging
+UI, commit the currently staged changes, or leave everything in the saved run.
+Staging and committing run inside the sandbox container; only committed Git
+objects are fetched back by the host.
+
+Set the default action in `agentbox.toml`, or override it for one invocation:
+
+```toml
+[git]
+uncommitted = "prompt" # prompt, commit-all, commit-staged, later, or abort
+# commit_message_default = "Apply agent-generated changes"
+```
+
+```bash
+uv run agentbox kilo run --uncommitted commit-all --commit-message "Apply Kilo changes"
+uv run agentbox codex run --uncommitted later
+```
+
+For commit messages, `--commit-message` takes precedence. Otherwise interactive
+sessions ask for a message and show `git.commit_message_default` as the fallback;
+pressing Enter accepts it. If no configured fallback exists, Agentbox uses
+`Apply Agentbox run <run-id> changes`. Non-interactive runs use the configured or
+generated fallback directly. A non-interactive `prompt` action safely behaves as
+`later`.
+
 Codex launches as:
 
 ```bash

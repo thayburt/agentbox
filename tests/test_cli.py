@@ -35,6 +35,16 @@ class CliRunPreparationTests(unittest.TestCase):
         self.assertTrue(enabled.sign_imports)
         self.assertFalse(disabled.sign_imports)
 
+    def test_parser_accepts_uncommitted_action_and_message(self):
+        parser = cli.build_parser()
+
+        args = parser.parse_args(
+            ["kilo", "run", "--uncommitted", "commit-all", "--commit-message", "Apply work"]
+        )
+
+        self.assertEqual(args.uncommitted, "commit-all")
+        self.assertEqual(args.commit_message, "Apply work")
+
     def test_parser_accepts_image_for_run_and_shell(self):
         parser = cli.build_parser()
 
@@ -62,9 +72,12 @@ class CliRunPreparationTests(unittest.TestCase):
 
             # Digest resolution runs podman; keep init tests offline by
             # treating every base image reference as already resolved.
-            with mock.patch(
-                "agentbox.podman.resolve_pinned_base_image", side_effect=lambda ref: ref
-            ) as resolve, self.quiet_output():
+            with (
+                mock.patch(
+                    "agentbox.podman.resolve_pinned_base_image", side_effect=lambda ref: ref
+                ) as resolve,
+                self.quiet_output(),
+            ):
                 status = cli.cmd_init(args)
 
             resolve.assert_called_once_with("ubuntu:24.04")
@@ -88,9 +101,12 @@ class CliRunPreparationTests(unittest.TestCase):
             containerfile.write_text("custom\n")
             kilo_containerfile.write_text("custom kilo\n")
             kilo_config.write_text("custom\n")
-            with mock.patch(
-                "agentbox.podman.resolve_pinned_base_image", side_effect=lambda ref: ref
-            ), self.quiet_output():
+            with (
+                mock.patch(
+                    "agentbox.podman.resolve_pinned_base_image", side_effect=lambda ref: ref
+                ),
+                self.quiet_output(),
+            ):
                 cli.cmd_init(args)
 
             self.assertEqual(containerfile.read_text(), "custom\n")
@@ -127,9 +143,11 @@ class CliRunPreparationTests(unittest.TestCase):
             output = io.StringIO()
             errors = io.StringIO()
 
-            with mock.patch.dict("os.environ", {"KILO_CONFIG": str(host_config)}, clear=True), (
-                contextlib.redirect_stdout(output)
-            ), contextlib.redirect_stderr(errors):
+            with (
+                mock.patch.dict("os.environ", {"KILO_CONFIG": str(host_config)}, clear=True),
+                contextlib.redirect_stdout(output),
+                contextlib.redirect_stderr(errors),
+            ):
                 status = lifecycle.run_container(
                     config,
                     "agentbox-kilo:test",
@@ -319,11 +337,13 @@ user_email = "config@example.com"
             source.write_text("model\n")
             errors = io.StringIO()
 
-            with mock.patch.dict(
-                "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
-            ), mock.patch.object(
-                seed.shutil, "copyfileobj", side_effect=OSError("denied")
-            ), contextlib.redirect_stderr(errors):
+            with (
+                mock.patch.dict(
+                    "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
+                ),
+                mock.patch.object(seed.shutil, "copyfileobj", side_effect=OSError("denied")),
+                contextlib.redirect_stderr(errors),
+            ):
                 run_dir, metadata = lifecycle.prepare_run(
                     config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                 )
@@ -348,9 +368,12 @@ user_email = "config@example.com"
             source.symlink_to(secret)
             errors = io.StringIO()
 
-            with mock.patch.dict(
-                "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
-            ), contextlib.redirect_stderr(errors):
+            with (
+                mock.patch.dict(
+                    "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
+                ),
+                contextlib.redirect_stderr(errors),
+            ):
                 run_dir, _ = lifecycle.prepare_run(
                     config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                 )
@@ -405,9 +428,12 @@ user_email = "config@example.com"
                 ),
             )
 
-            with mock.patch.dict(
-                "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
-            ), self.quiet_output():
+            with (
+                mock.patch.dict(
+                    "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
+                ),
+                self.quiet_output(),
+            ):
                 status = cli.cmd_runs_enter(
                     self.args(repo=root, run_id="kilo-run", dry_run=True, image=None)
                 )
@@ -415,9 +441,12 @@ user_email = "config@example.com"
             self.assertEqual(status, 0)
             self.assertEqual(destination.read_text(), "run model\n")
             destination.unlink()
-            with mock.patch.dict(
-                "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
-            ), self.quiet_output():
+            with (
+                mock.patch.dict(
+                    "os.environ", {"XDG_STATE_HOME": str(Path(tmp) / "host-state")}, clear=True
+                ),
+                self.quiet_output(),
+            ):
                 status = cli.cmd_runs_enter(
                     self.args(repo=root, run_id="kilo-run", dry_run=True, image=None)
                 )
@@ -486,10 +515,13 @@ user_email = "config@example.com"
                 sign_imports=None,
             )
 
-            with mock.patch(
-                "agentbox.lifecycle.podman.ensure_managed_image",
-                return_value="agentbox-codex:test",
-            ) as ensure, self.quiet_output():
+            with (
+                mock.patch(
+                    "agentbox.lifecycle.podman.ensure_managed_image",
+                    return_value="agentbox-codex:test",
+                ) as ensure,
+                self.quiet_output(),
+            ):
                 status = cli.cmd_harness_run(args)
 
             self.assertEqual(status, 0)
@@ -536,9 +568,10 @@ user_email = "config@example.com"
                 sign_imports=None,
             )
 
-            with mock.patch(
-                "agentbox.lifecycle.podman.ensure_managed_image"
-            ) as ensure, self.assertRaisesRegex(RuntimeError, "working tree is dirty"):
+            with (
+                mock.patch("agentbox.lifecycle.podman.ensure_managed_image") as ensure,
+                self.assertRaisesRegex(RuntimeError, "working tree is dirty"),
+            ):
                 cli.cmd_harness_run(args)
 
             ensure.assert_not_called()
@@ -633,9 +666,10 @@ user_email = "config@example.com"
                 driver="codex",
             )
 
-            with mock.patch(
-                "agentbox.lifecycle.podman.image_exists", return_value=False
-            ), self.assertRaisesRegex(RuntimeError, "no Containerfile snapshot"):
+            with (
+                mock.patch("agentbox.lifecycle.podman.image_exists", return_value=False),
+                self.assertRaisesRegex(RuntimeError, "no Containerfile snapshot"),
+            ):
                 lifecycle.ensure_saved_run_image(config, metadata, dry_run=False)
 
     def test_runs_enter_image_override_skips_image_check(self):
@@ -657,9 +691,12 @@ user_email = "config@example.com"
             runs.write_metadata(run_dir, metadata)
             output = io.StringIO()
 
-            with mock.patch(
-                "agentbox.lifecycle.podman.image_exists", return_value=False
-            ) as image_exists, contextlib.redirect_stdout(output):
+            with (
+                mock.patch(
+                    "agentbox.lifecycle.podman.image_exists", return_value=False
+                ) as image_exists,
+                contextlib.redirect_stdout(output),
+            ):
                 status = cli.cmd_runs_enter(
                     self.args(
                         repo=root,
@@ -692,9 +729,10 @@ user_email = "config@example.com"
             runs.write_metadata(run_dir, metadata)
             output = io.StringIO()
 
-            with mock.patch(
-                "agentbox.lifecycle.podman.image_exists", return_value=False
-            ), contextlib.redirect_stdout(output):
+            with (
+                mock.patch("agentbox.lifecycle.podman.image_exists", return_value=False),
+                contextlib.redirect_stdout(output),
+            ):
                 status = cli.cmd_harness_shell(
                     self.args(
                         repo=root,
@@ -849,10 +887,138 @@ sign_imports = true
             self.assertEqual(gitops.current_head(root), original_head)
             self.assertNotEqual(gitops.current_head(root), gitops.current_head(run_repo))
 
+    def test_complete_run_commits_all_in_container_then_fast_forwards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            (root / "agentbox.toml").write_text('[runtime]\nrun_store = "../runs"\n')
+            git(root, "add", "agentbox.toml")
+            git(root, "commit", "-m", "configure run store")
+            config = load_config(root)
+            run_repo, metadata = self.create_run(root, "dirty")
+            (run_repo / "file.txt").write_text("base\nchanged\n")
+            (run_repo / "new.txt").write_text("new\n")
+
+            def run_git_command(_config, _metadata, git_args, _image=None):
+                git(run_repo, *git_args)
+                return 0
+
+            with (
+                mock.patch(
+                    "agentbox.lifecycle.run_git_in_container", side_effect=run_git_command
+                ) as container_git,
+                self.quiet_output(),
+            ):
+                status = lifecycle.complete_run(
+                    config,
+                    metadata,
+                    "ff-only",
+                    uncommitted_override="commit-all",
+                    commit_message_override="Apply dirty work",
+                )
+
+            self.assertEqual(status, 0)
+            self.assertEqual(git_output(root, "log", "-1", "--format=%s"), "Apply dirty work")
+            self.assertEqual((root / "new.txt").read_text(), "new\n")
+            self.assertFalse(gitops.has_uncommitted_changes(run_repo))
+            self.assertEqual(container_git.call_args_list[0].args[2], ["add", "-A"])
+            self.assertIn("commit", container_git.call_args_list[1].args[2])
+
+    def test_complete_run_commit_staged_leaves_unstaged_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            run_repo, metadata = self.create_run(root, "staged")
+            (run_repo / "staged.txt").write_text("staged\n")
+            git(run_repo, "add", "staged.txt")
+            (run_repo / "unstaged.txt").write_text("unstaged\n")
+
+            def run_git_command(_config, _metadata, git_args, _image=None):
+                git(run_repo, *git_args)
+                return 0
+
+            output = io.StringIO()
+            with (
+                mock.patch("agentbox.lifecycle.run_git_in_container", side_effect=run_git_command),
+                contextlib.redirect_stdout(output),
+            ):
+                status = lifecycle.complete_run(
+                    config,
+                    metadata,
+                    "branch",
+                    uncommitted_override="commit-staged",
+                    commit_message_override="Commit staged work",
+                )
+
+            self.assertEqual(status, 0)
+            self.assertTrue(gitops.has_uncommitted_changes(run_repo))
+            self.assertTrue(gitops.branch_exists(root, f"agentbox/{metadata.id}"))
+            self.assertIn("still has uncommitted changes", output.getvalue())
+
+    def test_commit_message_interactive_input_precedes_config_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            (root / "agentbox.toml").write_text(
+                '[git]\ncommit_message_default = "Configured fallback"\n'
+            )
+            config = load_config(root)
+            _, metadata = self.create_run(root, "message")
+
+            with (
+                mock.patch("sys.stdin.isatty", return_value=True),
+                mock.patch("builtins.input", return_value="Invocation message"),
+            ):
+                message = lifecycle.resolve_commit_message(config, metadata, None)
+
+            self.assertEqual(message, "Invocation message")
+
+    def test_commit_message_empty_input_uses_config_then_generated_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            (root / "agentbox.toml").write_text(
+                '[git]\ncommit_message_default = "Configured fallback"\n'
+            )
+            config = load_config(root)
+            _, metadata = self.create_run(root, "message")
+
+            with (
+                mock.patch("sys.stdin.isatty", return_value=True),
+                mock.patch("builtins.input", return_value=""),
+            ):
+                configured = lifecycle.resolve_commit_message(config, metadata, None)
+            generated = lifecycle.resolve_commit_message(load_config(Path(tmp)), metadata, None)
+
+            self.assertEqual(configured, "Configured fallback")
+            self.assertEqual(generated, "Apply Agentbox run message changes")
+
+    def test_noninteractive_prompt_leaves_uncommitted_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            run_repo, metadata = self.create_run(root, "later")
+            (run_repo / "new.txt").write_text("new\n")
+
+            with (
+                mock.patch("sys.stdin.isatty", return_value=False),
+                mock.patch("agentbox.lifecycle.run_git_in_container") as container_git,
+                self.quiet_output(),
+            ):
+                status = lifecycle.complete_run(config, metadata, "later")
+
+            self.assertEqual(status, 0)
+            self.assertTrue(gitops.has_uncommitted_changes(run_repo))
+            container_git.assert_not_called()
+
     def init_repo(self, root: Path) -> Path:
         return helpers.init_repo(root, name="Host User", email="host@example.com")
 
     def create_committed_run(self, root: Path, run_id: str) -> tuple[Path, runs.RunMetadata]:
+        run_repo, metadata = self.create_run(root, run_id)
+        (run_repo / "file.txt").write_text("base\nchange\n")
+        git(run_repo, "add", "file.txt")
+        git(run_repo, "commit", "-m", "change")
+        return run_repo, metadata
+
+    def create_run(self, root: Path, run_id: str) -> tuple[Path, runs.RunMetadata]:
         config = load_config(root)
         state = gitops.repo_state(root)
         run_dir = config.run_store / run_id
@@ -860,9 +1026,6 @@ sign_imports = true
         gitops.clone_repo(root, run_repo, include_dirty=False)
         git(run_repo, "config", "user.email", "run@example.com")
         git(run_repo, "config", "user.name", "Run User")
-        (run_repo / "file.txt").write_text("base\nchange\n")
-        git(run_repo, "add", "file.txt")
-        git(run_repo, "commit", "-m", "change")
         metadata = runs.create_metadata(
             run_id,
             root,

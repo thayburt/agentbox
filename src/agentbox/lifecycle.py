@@ -191,9 +191,22 @@ def complete_run(
     metadata: runs.RunMetadata,
     pull_mode: str,
     sign_imports_override: bool | None = None,
+    *,
+    uncommitted_override: str | None = None,
+    commit_message_override: str | None = None,
+    commit_image: str | None = None,
 ) -> int:
     run_repo = Path(metadata.run_repo)
     branch = f"agentbox/{metadata.id}"
+    uncommitted_status = handle_uncommitted_changes(
+        config,
+        metadata,
+        uncommitted_override,
+        commit_message_override,
+        commit_image,
+    )
+    if uncommitted_status:
+        return uncommitted_status
     target_head = gitops.fetch_head(config.repo_root, run_repo)
     state = gitops.repo_state(config.repo_root)
     run_only_count = gitops.count_commits_between(config.repo_root, "HEAD", target_head)
@@ -259,6 +272,126 @@ def complete_run(
         print(f"fast-forwarded {fast_forward.current_branch} to {target_head[:7]}")
         return 0
     raise RuntimeError(f"unknown pull mode: {action}")
+
+
+def handle_uncommitted_changes(
+    config: Config,
+    metadata: runs.RunMetadata,
+    mode_override: str | None,
+    message_override: str | None,
+    image_override: str | None,
+) -> int:
+    run_repo = Path(metadata.run_repo)
+    if not gitops.has_uncommitted_changes(run_repo):
+        return 0
+
+    mode = mode_override or config.uncommitted
+    if mode == "prompt":
+        mode = prompt_uncommitted_action(metadata)
+    if mode == "later":
+        return 0
+    if mode == "abort":
+        print(f"run {metadata.id} has uncommitted changes", file=sys.stderr)
+        return 2
+    if mode == "commit-all":
+        status = run_git_in_container(config, metadata, ["add", "-A"], image_override)
+        if status:
+            return status
+    elif mode == "commit-staged":
+        pass
+    elif mode == "select":
+        status = run_git_in_container(config, metadata, ["add", "-i"], image_override)
+        if status:
+            return status
+    else:
+        raise RuntimeError(f"unknown uncommitted mode: {mode}")
+
+    if not gitops.has_staged_changes(run_repo):
+        print(f"run {metadata.id} has no staged changes to commit", file=sys.stderr)
+        return 2
+
+    message = resolve_commit_message(config, metadata, message_override)
+    status = run_git_in_container(
+        config,
+        metadata,
+        [
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "--no-verify",
+            "--no-gpg-sign",
+            "-m",
+            message,
+        ],
+        image_override,
+    )
+    if status:
+        return status
+    print(f"committed staged changes in run {metadata.id}")
+    if gitops.has_uncommitted_changes(run_repo):
+        print(f"run {metadata.id} still has uncommitted changes; they remain in the saved run")
+    return 0
+
+
+def prompt_uncommitted_action(metadata: runs.RunMetadata) -> str:
+    if not sys.stdin.isatty():
+        return "later"
+
+    print()
+    print(f"Run {metadata.id} has uncommitted changes:")
+    print("  [a] Stage and commit all changes")
+    print("  [s] Select changes to stage and commit")
+    print("  [t] Commit currently staged changes")
+    print("  [l] Leave changes in the saved run (default)")
+    print()
+    while True:
+        answer = input("Choice [a/s/t/l]: ").strip().lower()
+        if answer in {"", "l", "later"}:
+            return "later"
+        if answer in {"a", "all", "commit-all"}:
+            return "commit-all"
+        if answer in {"s", "select"}:
+            return "select"
+        if answer in {"t", "staged", "commit-staged"}:
+            return "commit-staged"
+        print("choose a, s, t, or l")
+
+
+def resolve_commit_message(
+    config: Config,
+    metadata: runs.RunMetadata,
+    override: str | None,
+) -> str:
+    if override is not None:
+        message = override.strip()
+        if not message:
+            raise RuntimeError("--commit-message must not be empty")
+        return message
+
+    fallback = config.commit_message_default or f"Apply Agentbox run {metadata.id} changes"
+    if not sys.stdin.isatty():
+        return fallback
+    message = input(f"Commit message [{fallback}]: ").strip()
+    return message or fallback
+
+
+def run_git_in_container(
+    config: Config,
+    metadata: runs.RunMetadata,
+    git_args: list[str],
+    image_override: str | None = None,
+) -> int:
+    command = "exec " + shlex.join(["git", *git_args])
+    return run_container(
+        config,
+        image_override or metadata.image,
+        Path(metadata.run_repo),
+        command,
+        False,
+        driver_id=metadata.driver,
+    )
 
 
 def resolve_sign_imports(config: Config, override: bool | None) -> bool:

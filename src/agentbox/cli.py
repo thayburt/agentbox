@@ -11,7 +11,7 @@ from typing import Callable, cast
 
 from . import gitops, lifecycle, podman, runs
 from .config import CONFIG_FILE, Config, default_toml, load_config
-from .domain import DIRTY_MODES, PULL_MODES, DriverId, ImageRef, RunId
+from .domain import DIRTY_MODES, PULL_MODES, UNCOMMITTED_MODES, DriverId, ImageRef, RunId
 from .drivers import Diagnostic, all_drivers, canonical_driver_id, get_driver
 from .template import render_template
 
@@ -62,6 +62,9 @@ def build_parser() -> argparse.ArgumentParser:
     runs_enter.add_argument("run_id", type=RunId)
     runs_enter.add_argument("--dry-run", action="store_true")
     runs_enter.add_argument("--image", type=ImageRef, default=None)
+    runs_enter.add_argument("--pull", choices=PULL_MODES, default="prompt")
+    add_uncommitted_args(runs_enter)
+    add_sign_import_args(runs_enter)
     runs_enter.set_defaults(func=cmd_runs_enter)
     runs_import = runs_sub.add_parser("import", help="Import run commits as a local branch")
     runs_import.add_argument("run_id", type=RunId)
@@ -108,6 +111,7 @@ def register_driver_commands(
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--dirty", choices=DIRTY_MODES, default="prompt")
     run.add_argument("--pull", choices=PULL_MODES, default="prompt")
+    add_uncommitted_args(run)
     run.add_argument("--image", type=ImageRef, default=None)
     run.add_argument("--git-user-name", default=None)
     run.add_argument("--git-user-email", default=None)
@@ -117,10 +121,9 @@ def register_driver_commands(
     shell = harness_sub.add_parser("shell", help="Open a shell in an isolated run")
     shell.add_argument("--run", dest="run_id", type=RunId)
     shell.add_argument("--dry-run", action="store_true")
-    shell.add_argument(
-        "--dirty", choices=DIRTY_MODES, default="prompt"
-    )
+    shell.add_argument("--dirty", choices=DIRTY_MODES, default="prompt")
     shell.add_argument("--pull", choices=PULL_MODES, default="prompt")
+    add_uncommitted_args(shell)
     shell.add_argument("--image", type=ImageRef, default=None)
     shell.add_argument("--git-user-name", default=None)
     shell.add_argument("--git-user-email", default=None)
@@ -283,14 +286,21 @@ def cmd_harness_run(args: argparse.Namespace) -> int:
         return status
     # Pull handling intentionally runs after a non-zero harness exit so
     # non-interactive pull modes can still import work from a failed run.
-    pull_status = lifecycle.complete_run(config, metadata, args.pull, args.sign_imports)
+    pull_status = lifecycle.complete_run(
+        config,
+        metadata,
+        args.pull,
+        args.sign_imports,
+        uncommitted_override=getattr(args, "uncommitted", None),
+        commit_message_override=getattr(args, "commit_message", None),
+        commit_image=image,
+    )
     return status if status else pull_status
 
 
 def cmd_harness_shell(args: argparse.Namespace) -> int:
     config = context(args)
     driver_id = selected_driver_id(args)
-    should_complete = False
     if args.run_id:
         metadata = lifecycle.load_run(config, args.run_id)
         if metadata.driver != driver_id:
@@ -322,7 +332,6 @@ def cmd_harness_shell(args: argparse.Namespace) -> int:
             containerfile=managed_containerfile,
             driver_id=driver_id,
         )
-        should_complete = True
     command = "exec bash"
     status = lifecycle.run_container(
         config,
@@ -332,11 +341,19 @@ def cmd_harness_shell(args: argparse.Namespace) -> int:
         args.dry_run,
         driver_id=driver_id,
     )
-    if args.dry_run or not should_complete:
+    if args.dry_run:
         return status
     # Pull handling intentionally runs after a non-zero harness exit so
     # non-interactive pull modes can still import work from a failed run.
-    pull_status = lifecycle.complete_run(config, metadata, args.pull, args.sign_imports)
+    pull_status = lifecycle.complete_run(
+        config,
+        metadata,
+        getattr(args, "pull", "prompt"),
+        getattr(args, "sign_imports", None),
+        uncommitted_override=getattr(args, "uncommitted", None),
+        commit_message_override=getattr(args, "commit_message", None),
+        commit_image=image,
+    )
     return status if status else pull_status
 
 
@@ -356,7 +373,7 @@ def cmd_runs_enter(args: argparse.Namespace) -> int:
     if args.image is None:
         lifecycle.ensure_saved_run_image(config, metadata, args.dry_run)
     command = "exec bash"
-    return lifecycle.run_container(
+    status = lifecycle.run_container(
         config,
         image,
         Path(metadata.run_repo),
@@ -364,6 +381,18 @@ def cmd_runs_enter(args: argparse.Namespace) -> int:
         args.dry_run,
         driver_id=metadata.driver,
     )
+    if args.dry_run:
+        return status
+    pull_status = lifecycle.complete_run(
+        config,
+        metadata,
+        args.pull,
+        args.sign_imports,
+        uncommitted_override=args.uncommitted,
+        commit_message_override=args.commit_message,
+        commit_image=image,
+    )
+    return status if status else pull_status
 
 
 def cmd_runs_import(args: argparse.Namespace) -> int:
@@ -448,6 +477,11 @@ def add_sign_import_args(parser: argparse.ArgumentParser) -> None:
     parser.set_defaults(sign_imports=None)
     parser.add_argument("--sign-imports", dest="sign_imports", action="store_true")
     parser.add_argument("--no-sign-imports", dest="sign_imports", action="store_false")
+
+
+def add_uncommitted_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--uncommitted", choices=UNCOMMITTED_MODES, default=None)
+    parser.add_argument("--commit-message", default=None)
 
 
 if __name__ == "__main__":

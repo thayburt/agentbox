@@ -14,8 +14,9 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.run_store, Path(tmp) / ".agentbox" / "runs")
 
     def test_codex_home_prefers_environment(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {"CODEX_HOME": "/tmp/codex-home"}
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(os.environ, {"CODEX_HOME": "/tmp/codex-home"}),
         ):
             config = load_config(Path(tmp))
             self.assertEqual(
@@ -46,6 +47,8 @@ class ConfigTests(unittest.TestCase):
             self.assertIsNone(config.git_user_name)
             self.assertIsNone(config.git_user_email)
             self.assertFalse(config.sign_imports)
+            self.assertEqual(config.uncommitted, "prompt")
+            self.assertIsNone(config.commit_message_default)
 
     def test_git_identity_loads_from_config(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -56,12 +59,16 @@ class ConfigTests(unittest.TestCase):
 user_name = "Agent User"
 user_email = "agent@example.com"
 sign_imports = true
+uncommitted = "commit-all"
+commit_message_default = "Apply sandbox changes"
 """
             )
             config = load_config(root)
             self.assertEqual(config.git_user_name, "Agent User")
             self.assertEqual(config.git_user_email, "agent@example.com")
             self.assertTrue(config.sign_imports)
+            self.assertEqual(config.uncommitted, "commit-all")
+            self.assertEqual(config.commit_message_default, "Apply sandbox changes")
 
     def test_rejects_invalid_section_shapes_and_unknown_sections(self):
         cases = (
@@ -82,6 +89,11 @@ sign_imports = true
             ("[runtime]\nrun_store = false", "runtime.run_store must be a string"),
             ("[runtime]\nselinux = 'invalid'", "runtime.selinux must be one of"),
             ("[git]\nsign_imports = 'false'", "git.sign_imports must be a boolean"),
+            ("[git]\nuncommitted = 'invalid'", "git.uncommitted must be one of"),
+            (
+                "[git]\ncommit_message_default = false",
+                "git.commit_message_default must be a string",
+            ),
             ("[codex]\nimage_name = 1", "codex.image_name must be a string"),
             ("[kilo]\nunknown = 'x'", "kilo.unknown is not a valid setting"),
         )

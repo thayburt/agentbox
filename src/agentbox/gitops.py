@@ -115,7 +115,14 @@ def count_commits_between(repo: Path, base: str, head: str) -> int:
 
 
 def has_uncommitted_changes(repo: Path) -> bool:
-    return bool(run_git(["status", "--porcelain"], repo).stdout.strip())
+    return bool(_status_porcelain(repo).strip())
+
+
+def has_staged_changes(repo: Path) -> bool:
+    for line in _status_porcelain(repo).splitlines():
+        if line and line[0] not in {" ", "?"}:
+            return True
+    return False
 
 
 def current_head(repo: Path) -> str:
@@ -278,6 +285,12 @@ def _git_config_get(repo: Path, key: str) -> str | None:
         return None
     value = result.stdout.strip()
     return value or None
+
+
+def _status_porcelain(repo: Path) -> str:
+    # The run can edit its local Git config; do not execute an agent-supplied
+    # fsmonitor command while the host inspects that repository.
+    return run_git(["-c", "core.fsmonitor=false", "status", "--porcelain"], repo).stdout
 
 
 def _rev_list(repo: Path, args: list[str]) -> list[str]:
