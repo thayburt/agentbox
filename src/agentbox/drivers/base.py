@@ -43,6 +43,13 @@ class RunSeedFileSpec:
 
 
 @dataclass(frozen=True)
+class RunSeedDirectorySpec:
+    source: str
+    destination: Path
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class Diagnostic:
     name: str
     value: str
@@ -74,6 +81,10 @@ class HarnessDriver(Protocol):
     def run_seed_files(
         self, settings: object, host_env: Mapping[str, str], run_dir: Path
     ) -> list[RunSeedFileSpec]: ...
+
+    def run_seed_directories(
+        self, settings: object, host_env: Mapping[str, str], run_dir: Path
+    ) -> list[RunSeedDirectorySpec]: ...
 
     def init_files(self, settings: object) -> list[InitFileSpec]: ...
 

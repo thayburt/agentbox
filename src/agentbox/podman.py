@@ -349,8 +349,8 @@ def render_run_command(
         args.extend(["-e", f"{key}={value}"])
     mounts = validated_state_mounts(
         [
-            *driver.state_mounts(settings, host_env),
             *driver.run_state_mounts(settings, host_env, run_repo.parent),
+            *driver.state_mounts(settings, host_env),
             *driver.config_mounts(settings, host_env, config.repo_root),
         ],
         workspace,
@@ -374,8 +374,8 @@ def ensure_state_mounts(
     workspace = workspace or settings.workspace_folder
     mounts = validated_state_mounts(
         [
-            *driver.state_mounts(settings, host_env),
             *driver.run_state_mounts(settings, host_env, run_repo.parent),
+            *driver.state_mounts(settings, host_env),
             *driver.config_mounts(settings, host_env, config.repo_root),
         ],
         workspace,

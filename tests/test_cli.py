@@ -14,6 +14,11 @@ from tests.helpers import configure_fake_signing, git, git_output
 
 
 class CliRunPreparationTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch("agentbox.lifecycle.seed_run_directories")
+        self.seed_run_directories = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_sign_import_parser_defaults_to_none(self):
         parser = cli.build_parser()
 
@@ -141,7 +146,7 @@ class CliRunPreparationTests(unittest.TestCase):
             )
             self.assertNotIn("/kilo-host/KILO_CONFIG", output.getvalue())
 
-    def test_kilo_saved_run_enter_dry_run_uses_original_run_cache(self):
+    def test_kilo_saved_run_enter_dry_run_uses_original_run_home(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.init_repo(Path(tmp) / "repo")
             config = load_config(root)
@@ -168,8 +173,8 @@ class CliRunPreparationTests(unittest.TestCase):
                 )
 
             self.assertEqual(status, 0)
-            self.assertIn(f"{run_dir / 'cache'}:/home/ubuntu/.cache:U", output.getvalue())
-            self.assertFalse((run_dir / "cache").exists())
+            self.assertIn(f"{run_dir / 'home'}:/home/ubuntu:U", output.getvalue())
+            self.assertFalse((run_dir / "home").exists())
 
     def test_prepare_run_applies_identity_from_host_git_config(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -264,10 +269,29 @@ user_email = "config@example.com"
                     config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                 )
 
-            destination = run_dir / "state" / "kilo" / "model.json"
+            destination = run_dir / "home" / ".local" / "state" / "kilo" / "model.json"
             self.assertEqual(destination.read_text(), '{"model":"first"}\n')
             source.write_text('{"model":"changed"}\n')
             self.assertEqual(destination.read_text(), '{"model":"first"}\n')
+
+    def test_prepare_kilo_run_initializes_image_home_before_model_seed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.init_repo(Path(tmp) / "repo")
+            config = load_config(root)
+            calls = []
+            self.seed_run_directories.side_effect = lambda *args: calls.append("image")
+
+            with mock.patch(
+                "agentbox.lifecycle.seed_run_files", side_effect=lambda *args: calls.append("model")
+            ):
+                run_dir, _ = lifecycle.prepare_run(
+                    config, "ignore", "agentbox-kilo:test", driver_id="kilo"
+                )
+
+            self.assertEqual(calls, ["image", "model"])
+            self.seed_run_directories.assert_called_once_with(
+                config, "kilo", "agentbox-kilo:test", run_dir
+            )
 
     def test_prepare_kilo_run_skips_missing_model_and_dry_run_has_no_seed_effects(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -283,7 +307,7 @@ user_email = "config@example.com"
                     config, "ignore", "agentbox-kilo:test", dry_run=True, driver_id="kilo"
                 )
 
-            self.assertFalse((run_dir / "state").exists())
+            self.assertFalse((run_dir / "home").exists())
             self.assertFalse(dry_run_dir.exists())
 
     def test_prepare_kilo_run_warns_and_continues_when_model_copy_fails(self):
@@ -305,7 +329,9 @@ user_email = "config@example.com"
                 )
 
             self.assertTrue(Path(metadata.run_repo).is_dir())
-            self.assertFalse((run_dir / "state" / "kilo" / "model.json").exists())
+            self.assertFalse(
+                (run_dir / "home" / ".local" / "state" / "kilo" / "model.json").exists()
+            )
             self.assertIn(
                 "agentbox: warning: could not seed Kilo model selection", errors.getvalue()
             )
@@ -329,7 +355,9 @@ user_email = "config@example.com"
                     config, "ignore", "agentbox-kilo:test", driver_id="kilo"
                 )
 
-            self.assertFalse((run_dir / "state" / "kilo" / "model.json").exists())
+            self.assertFalse(
+                (run_dir / "home" / ".local" / "state" / "kilo" / "model.json").exists()
+            )
             self.assertIn(
                 "agentbox: warning: could not seed Kilo model selection", errors.getvalue()
             )
@@ -358,7 +386,7 @@ user_email = "config@example.com"
             run_dir = config.run_store / "kilo-run"
             run_repo = run_dir / "repo"
             run_repo.mkdir(parents=True)
-            destination = run_dir / "state" / "kilo" / "model.json"
+            destination = run_dir / "home" / ".local" / "state" / "kilo" / "model.json"
             destination.parent.mkdir(parents=True)
             destination.write_text("run model\n")
             source = Path(tmp) / "host-state" / "kilo" / "model.json"

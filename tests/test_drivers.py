@@ -56,20 +56,15 @@ codex_home = "/tmp/codex-home"
             kilo = get_driver("kilo")
             mounts = kilo.run_state_mounts(kilo.default_settings({}), {}, run_dir)
 
-            self.assertEqual(len(mounts), 2)
-            cache, state = mounts
-            self.assertEqual(cache.source, run_dir / "cache")
-            self.assertEqual(cache.target, "/home/ubuntu/.cache")
-            self.assertEqual(cache.kind, "directory")
-            self.assertTrue(cache.create)
-            self.assertTrue(cache.chown)
-            self.assertFalse(cache.readonly)
-            self.assertEqual(cache.relabel, "private")
-            self.assertEqual(state.source, run_dir / "state")
-            self.assertEqual(state.target, "/home/ubuntu/.local/state")
-            self.assertTrue(state.create)
-            self.assertTrue(state.chown)
-            self.assertEqual(state.relabel, "private")
+            self.assertEqual(len(mounts), 1)
+            home = mounts[0]
+            self.assertEqual(home.source, run_dir / "home")
+            self.assertEqual(home.target, "/home/ubuntu")
+            self.assertEqual(home.kind, "directory")
+            self.assertTrue(home.create)
+            self.assertTrue(home.chown)
+            self.assertFalse(home.readonly)
+            self.assertEqual(home.relabel, "private")
 
             codex = get_driver("codex")
             self.assertEqual(codex.run_state_mounts(codex.default_settings({}), {}, run_dir), [])
@@ -119,9 +114,19 @@ codex_home = "/tmp/codex-home"
 
             self.assertEqual(len(seeds), 1)
             self.assertEqual(seeds[0].source, root / "state" / "kilo" / "model.json")
-            self.assertEqual(seeds[0].destination, run_dir / "state" / "kilo" / "model.json")
+            self.assertEqual(
+                seeds[0].destination,
+                run_dir / "home" / ".local" / "state" / "kilo" / "model.json",
+            )
+            directories = kilo.run_seed_directories(kilo.default_settings({}), {}, run_dir)
+            self.assertEqual(len(directories), 1)
+            self.assertEqual(directories[0].source, "/home/ubuntu")
+            self.assertEqual(directories[0].destination, run_dir / "home")
             codex = get_driver("codex")
             self.assertEqual(codex.run_seed_files(codex.default_settings({}), {}, run_dir), [])
+            self.assertEqual(
+                codex.run_seed_directories(codex.default_settings({}), {}, run_dir), []
+            )
 
     def test_kilo_model_seed_uses_fallback_for_empty_xdg_state_home(self):
         with tempfile.TemporaryDirectory() as tmp:
