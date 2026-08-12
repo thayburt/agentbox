@@ -50,5 +50,6 @@ exit 0
 """
     )
     fake_gpg.chmod(0o755)
+    git(cwd, "config", "gpg.format", "openpgp")
     git(cwd, "config", "gpg.program", str(fake_gpg))
     git(cwd, "config", "user.signingkey", "fake")
