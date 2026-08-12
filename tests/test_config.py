@@ -15,6 +15,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.run_store, Path(tmp) / ".agentbox" / "runs")
             self.assertEqual(config.capabilities, ())
             self.assertEqual(config.security_options, ())
+            self.assertEqual(config.devices, ())
 
     def test_runtime_capabilities_are_normalized_and_deduplicated(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -39,7 +40,22 @@ class ConfigTests(unittest.TestCase):
 
             self.assertEqual(config.security_options, ("unmask=ALL", " label=disable "))
 
-    def test_security_options_are_keyword_only_without_shifting_harnesses(self):
+    def test_runtime_devices_are_preserved_and_deduplicated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agentbox.toml").write_text(
+                '[runtime]\ndevices = ["/dev/example", " /dev/example ", '
+                '"/dev/source:/dev/target:rwm", "/dev/example"]\n'
+            )
+
+            config = load_config(root)
+
+            self.assertEqual(
+                config.devices,
+                ("/dev/example", " /dev/example ", "/dev/source:/dev/target:rwm"),
+            )
+
+    def test_runtime_passthrough_options_are_keyword_only_without_shifting_harnesses(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             harnesses = {"codex": get_driver("codex").default_settings({})}
@@ -54,10 +70,12 @@ class ConfigTests(unittest.TestCase):
                 (),
                 harnesses,
                 security_options=("unmask=ALL",),
+                devices=("/dev/example",),
             )
 
             self.assertIs(config.harnesses, harnesses)
             self.assertEqual(config.security_options, ("unmask=ALL",))
+            self.assertEqual(config.devices, ("/dev/example",))
 
     def test_codex_home_prefers_environment(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
@@ -150,6 +168,18 @@ sign_imports = true
             (
                 "[runtime]\nsecurity_options = ['   ']",
                 "runtime.security_options contains invalid security option",
+            ),
+            (
+                "[runtime]\ndevices = '/dev/example'",
+                "runtime.devices must be an array of strings",
+            ),
+            (
+                "[runtime]\ndevices = ['/dev/example', 1]",
+                "runtime.devices must be an array of strings",
+            ),
+            (
+                "[runtime]\ndevices = ['']",
+                "runtime.devices contains invalid device: ''",
             ),
             ("[git]\nsign_imports = 'false'", "git.sign_imports must be a boolean"),
             ("[codex]\nimage_name = 1", "codex.image_name must be a string"),

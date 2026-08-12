@@ -76,6 +76,27 @@ Agentbox always retains `no-new-privileges`; configured options cannot remove
 it. Security options are passed to Podman as written and can materially weaken
 container isolation or expose host resources.
 
+Device passthrough can be configured using full Podman device specifications:
+
+```toml
+[runtime]
+devices = ["/dev/example", "/dev/source:/dev/target:rwm"]
+```
+
+Agentbox passes each value directly to Podman. Configured devices increase the
+container's access to host hardware and should be enabled only when required.
+
+On SELinux-enforcing hosts, rootless Podman bind-mounts devices with their host
+labels. Access may be denied unless an administrator allows containers to use
+device labels:
+
+```bash
+sudo setsebool -P container_use_devices=true
+```
+
+This changes host-wide SELinux policy, so enable it only on systems where
+container device access is required.
+
 ## Run Harnesses
 
 ```bash

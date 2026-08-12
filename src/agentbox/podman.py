@@ -355,6 +355,8 @@ def render_run_command(
                 f"{option!r}"
             )
         args.append(f"--security-opt={option}")
+    for device in config.devices:
+        args.append(f"--device={device}")
     args.extend(
         [
             "--workdir",

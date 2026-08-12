@@ -76,6 +76,7 @@ class PodmanTests(unittest.TestCase):
                 ],
             )
             self.assertFalse(any(arg.startswith("--cap-add=") for arg in cmd))
+            self.assertFalse(any(arg.startswith("--device=") for arg in cmd))
 
     def test_render_run_command_adds_configured_security_options_in_order(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -181,6 +182,33 @@ class PodmanTests(unittest.TestCase):
             self.assertIn("--cap-drop=ALL", cmd)
             self.assertIn("--cap-add=SYS_ADMIN", cmd)
             self.assertIn("--cap-add=SYS_CHROOT", cmd)
+
+    def test_render_run_command_adds_configured_devices_verbatim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+            devices = ("/dev/example", "/dev/source:/dev/target:rwm")
+            config = replace(self.config(root), devices=devices)
+
+            cmd = render_run_command(
+                config=config,
+                image="agentbox-codex:test",
+                run_repo=run_repo,
+                command="exec bash",
+                driver_id="codex",
+            )
+
+            self.assertIn("--cap-drop=ALL", cmd)
+            self.assertIn("--security-opt=no-new-privileges", cmd)
+            self.assertEqual(
+                [arg for arg in cmd if arg.startswith("--device=")],
+                [f"--device={device}" for device in devices],
+            )
+            first_mount = cmd.index("-v")
+            self.assertTrue(
+                all(cmd.index(f"--device={device}") < first_mount for device in devices)
+            )
 
     def test_volume_suffix(self):
         self.assertEqual(volume_suffix("disabled"), "")

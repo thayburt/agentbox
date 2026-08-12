@@ -30,6 +30,7 @@ class Config:
     capabilities: tuple[str, ...] = ()
     harnesses: dict[DriverId, CommonDriverSettings] = field(default_factory=dict)
     security_options: tuple[str, ...] = field(default=(), kw_only=True)
+    devices: tuple[str, ...] = field(default=(), kw_only=True)
 
     def driver_settings(self, driver_id: str | DriverId) -> CommonDriverSettings:
         canonical = canonical_driver_id(driver_id)
@@ -63,7 +64,7 @@ def load_config(repo_root: Path) -> Config:
     git = _table(data, "git")
     _reject_unknown(
         runtime,
-        {"run_store", "selinux", "capabilities", "security_options"},
+        {"run_store", "selinux", "capabilities", "security_options", "devices"},
         "runtime",
     )
     _reject_unknown(git, {"user_name", "user_email", "sign_imports"}, "git")
@@ -71,6 +72,7 @@ def load_config(repo_root: Path) -> Config:
     selinux_raw = _string(runtime, "selinux", "auto", "runtime")
     capabilities = _capabilities(runtime)
     security_options = _security_options(runtime)
+    devices = _devices(runtime)
     if selinux_raw not in SELINUX_MODES:
         values = ", ".join(SELINUX_MODES)
         raise ValueError(f"agentbox.toml: runtime.selinux must be one of {values}")
@@ -96,6 +98,7 @@ def load_config(repo_root: Path) -> Config:
         sign_imports=_boolean(git, "sign_imports", False, "git"),
         capabilities=capabilities,
         security_options=security_options,
+        devices=devices,
         harnesses=harnesses,
     )
 
@@ -177,3 +180,17 @@ def _security_options(table: dict[str, object]) -> tuple[str, ...]:
         if item not in security_options:
             security_options.append(item)
     return tuple(security_options)
+
+
+def _devices(table: dict[str, object]) -> tuple[str, ...]:
+    value = table.get("devices", [])
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError("agentbox.toml: runtime.devices must be an array of strings")
+
+    devices: list[str] = []
+    for item in value:
+        if not item:
+            raise ValueError(f"agentbox.toml: runtime.devices contains invalid device: {item!r}")
+        if item not in devices:
+            devices.append(item)
+    return tuple(devices)
