@@ -81,10 +81,16 @@ Device passthrough can be configured using full Podman device specifications:
 ```toml
 [runtime]
 devices = ["/dev/example", "/dev/source:/dev/target:rwm"]
+keep_groups = true
 ```
 
 Agentbox passes each value directly to Podman. Configured devices increase the
 container's access to host hardware and should be enabled only when required.
+Set `keep_groups = true` when a rootless container needs the caller's
+supplementary group access for a device. This passes
+`--group-add=keep-groups` to Podman, preserves all supplementary groups rather
+than selected groups, requires the `crun` OCI runtime, and is unavailable with
+remote Podman clients.
 
 On SELinux-enforcing hosts, rootless Podman bind-mounts devices with their host
 labels. Access may be denied unless an administrator allows containers to use

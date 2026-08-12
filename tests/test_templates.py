@@ -82,6 +82,7 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(tomllib.loads(codex_section)["codex"]["codex_home"], "/custom/codex")
         self.assertEqual(tomllib.loads(kilo_section)["kilo"]["image_name"], "agentbox-kilo")
         self.assertEqual(list(tomllib.loads(root)), ["runtime", "codex", "kilo", "git"])
+        self.assertFalse(tomllib.loads(root)["runtime"]["keep_groups"])
         self.assertEqual(tomllib.loads(root)["runtime"]["capabilities"], [])
         self.assertEqual(tomllib.loads(root)["runtime"]["security_options"], [])
         self.assertEqual(tomllib.loads(root)["runtime"]["devices"], [])

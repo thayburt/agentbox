@@ -3,6 +3,7 @@
 [runtime]
 run_store = ".agentbox/runs"
 selinux = "auto" # auto, z, Z, or disabled
+keep_groups = false # Preserve the caller's supplementary groups (requires crun)
 capabilities = [] # Linux capabilities to add after dropping all capabilities
 security_options = [] # Additional Podman security options; no-new-privileges remains mandatory
 devices = [] # Full Podman HOST[:CONTAINER][:PERMISSIONS] device specifications

@@ -13,9 +13,19 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_config(Path(tmp))
             self.assertEqual(config.run_store, Path(tmp) / ".agentbox" / "runs")
+            self.assertFalse(config.keep_groups)
             self.assertEqual(config.capabilities, ())
             self.assertEqual(config.security_options, ())
             self.assertEqual(config.devices, ())
+
+    def test_runtime_keep_groups_is_loaded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agentbox.toml").write_text("[runtime]\nkeep_groups = true\n")
+
+            config = load_config(root)
+
+            self.assertTrue(config.keep_groups)
 
     def test_runtime_capabilities_are_normalized_and_deduplicated(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -145,6 +155,7 @@ sign_imports = true
             ("[runtime]\nunknown = 'x'", "runtime.unknown is not a valid setting"),
             ("[runtime]\nrun_store = false", "runtime.run_store must be a string"),
             ("[runtime]\nselinux = 'invalid'", "runtime.selinux must be one of"),
+            ("[runtime]\nkeep_groups = 'true'", "runtime.keep_groups must be a boolean"),
             (
                 "[runtime]\ncapabilities = 'SYS_ADMIN'",
                 "runtime.capabilities must be an array of strings",

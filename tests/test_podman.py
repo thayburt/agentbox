@@ -77,6 +77,7 @@ class PodmanTests(unittest.TestCase):
             )
             self.assertFalse(any(arg.startswith("--cap-add=") for arg in cmd))
             self.assertFalse(any(arg.startswith("--device=") for arg in cmd))
+            self.assertNotIn("--group-add=keep-groups", cmd)
 
     def test_render_run_command_adds_configured_security_options_in_order(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -209,6 +210,23 @@ class PodmanTests(unittest.TestCase):
             self.assertTrue(
                 all(cmd.index(f"--device={device}") < first_mount for device in devices)
             )
+
+    def test_render_run_command_preserves_supplementary_groups_when_configured(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+            config = replace(self.config(root), keep_groups=True)
+
+            cmd = render_run_command(
+                config=config,
+                image="agentbox-codex:test",
+                run_repo=run_repo,
+                command="exec bash",
+                driver_id="codex",
+            )
+
+            self.assertEqual(cmd.count("--group-add=keep-groups"), 1)
 
     def test_volume_suffix(self):
         self.assertEqual(volume_suffix("disabled"), "")

@@ -31,6 +31,7 @@ class Config:
     harnesses: dict[DriverId, CommonDriverSettings] = field(default_factory=dict)
     security_options: tuple[str, ...] = field(default=(), kw_only=True)
     devices: tuple[str, ...] = field(default=(), kw_only=True)
+    keep_groups: bool = field(default=False, kw_only=True)
 
     def driver_settings(self, driver_id: str | DriverId) -> CommonDriverSettings:
         canonical = canonical_driver_id(driver_id)
@@ -64,7 +65,14 @@ def load_config(repo_root: Path) -> Config:
     git = _table(data, "git")
     _reject_unknown(
         runtime,
-        {"run_store", "selinux", "capabilities", "security_options", "devices"},
+        {
+            "run_store",
+            "selinux",
+            "capabilities",
+            "security_options",
+            "devices",
+            "keep_groups",
+        },
         "runtime",
     )
     _reject_unknown(git, {"user_name", "user_email", "sign_imports"}, "git")
@@ -96,6 +104,7 @@ def load_config(repo_root: Path) -> Config:
         git_user_name=_optional_string(git, "user_name", "git"),
         git_user_email=_optional_string(git, "user_email", "git"),
         sign_imports=_boolean(git, "sign_imports", False, "git"),
+        keep_groups=_boolean(runtime, "keep_groups", False, "runtime"),
         capabilities=capabilities,
         security_options=security_options,
         devices=devices,
