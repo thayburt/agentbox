@@ -28,6 +28,7 @@ class Config:
     git_user_email: str | None
     sign_imports: bool
     capabilities: tuple[str, ...] = ()
+    security_options: tuple[str, ...] = ()
     harnesses: dict[DriverId, CommonDriverSettings] = field(default_factory=dict)
 
     def driver_settings(self, driver_id: str | DriverId) -> CommonDriverSettings:
@@ -60,11 +61,16 @@ def load_config(repo_root: Path) -> Config:
 
     runtime = _table(data, "runtime")
     git = _table(data, "git")
-    _reject_unknown(runtime, {"run_store", "selinux", "capabilities"}, "runtime")
+    _reject_unknown(
+        runtime,
+        {"run_store", "selinux", "capabilities", "security_options"},
+        "runtime",
+    )
     _reject_unknown(git, {"user_name", "user_email", "sign_imports"}, "git")
     run_store_raw = _string(runtime, "run_store", ".agentbox/runs", "runtime")
     selinux_raw = _string(runtime, "selinux", "auto", "runtime")
     capabilities = _capabilities(runtime)
+    security_options = _security_options(runtime)
     if selinux_raw not in SELINUX_MODES:
         values = ", ".join(SELINUX_MODES)
         raise ValueError(f"agentbox.toml: runtime.selinux must be one of {values}")
@@ -89,6 +95,7 @@ def load_config(repo_root: Path) -> Config:
         git_user_email=_optional_string(git, "user_email", "git"),
         sign_imports=_boolean(git, "sign_imports", False, "git"),
         capabilities=capabilities,
+        security_options=security_options,
         harnesses=harnesses,
     )
 
@@ -153,3 +160,20 @@ def _capabilities(table: dict[str, object]) -> tuple[str, ...]:
         if capability not in capabilities:
             capabilities.append(capability)
     return tuple(capabilities)
+
+
+def _security_options(table: dict[str, object]) -> tuple[str, ...]:
+    value = table.get("security_options", [])
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError("agentbox.toml: runtime.security_options must be an array of strings")
+
+    security_options: list[str] = []
+    for item in value:
+        if not item.strip():
+            raise ValueError(
+                "agentbox.toml: runtime.security_options contains invalid security option: "
+                f"{item!r}"
+            )
+        if item not in security_options:
+            security_options.append(item)
+    return tuple(security_options)

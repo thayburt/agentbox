@@ -4,6 +4,7 @@
 run_store = ".agentbox/runs"
 selinux = "auto" # auto, z, Z, or disabled
 capabilities = [] # Linux capabilities to add after dropping all capabilities
+security_options = [] # Additional Podman security options; no-new-privileges remains mandatory
 
 @@DRIVER_SECTIONS@@
 

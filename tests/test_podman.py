@@ -60,8 +60,85 @@ class PodmanTests(unittest.TestCase):
             )
 
             self.assertIn("--cap-drop=ALL", cmd)
-            self.assertIn("--security-opt=no-new-privileges", cmd)
+            self.assertEqual(cmd.count("--security-opt=no-new-privileges"), 1)
+            self.assertEqual(
+                cmd[:9],
+                [
+                    "podman",
+                    "run",
+                    "--rm",
+                    "-it",
+                    "--userns=keep-id",
+                    "--cap-drop=ALL",
+                    "--security-opt=no-new-privileges",
+                    "--workdir",
+                    "/workspace",
+                ],
+            )
             self.assertFalse(any(arg.startswith("--cap-add=") for arg in cmd))
+
+    def test_render_run_command_adds_configured_security_options_in_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+            config = replace(
+                self.config(root),
+                security_options=("unmask=ALL", "seccomp=/path with spaces/profile.json"),
+            )
+
+            cmd = render_run_command(
+                config=config,
+                image="agentbox-codex:test",
+                run_repo=run_repo,
+                command="exec bash",
+                driver_id="codex",
+            )
+
+            self.assertEqual(
+                [arg for arg in cmd if arg.startswith("--security-opt=")],
+                [
+                    "--security-opt=no-new-privileges",
+                    "--security-opt=unmask=ALL",
+                    "--security-opt=seccomp=/path with spaces/profile.json",
+                ],
+            )
+            self.assertLess(
+                cmd.index("--security-opt=seccomp=/path with spaces/profile.json"),
+                cmd.index("-e"),
+            )
+
+    def test_render_run_command_deduplicates_all_security_options(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_repo = root / "run" / "repo"
+            run_repo.mkdir(parents=True)
+            config = replace(
+                self.config(root),
+                security_options=(
+                    "no-new-privileges",
+                    "label=disable",
+                    "label=disable",
+                    "unmask=ALL",
+                ),
+            )
+
+            cmd = render_run_command(
+                config=config,
+                image="agentbox-codex:test",
+                run_repo=run_repo,
+                command="exec bash",
+                driver_id="codex",
+            )
+
+            self.assertEqual(
+                [arg for arg in cmd if arg.startswith("--security-opt=")],
+                [
+                    "--security-opt=no-new-privileges",
+                    "--security-opt=label=disable",
+                    "--security-opt=unmask=ALL",
+                ],
+            )
 
     def test_render_run_command_adds_configured_capabilities(self):
         with tempfile.TemporaryDirectory() as tmp:

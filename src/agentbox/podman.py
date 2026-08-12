@@ -337,12 +337,18 @@ def render_run_command(
         "-it",
         "--userns=keep-id",
         "--cap-drop=ALL",
-        "--security-opt=no-new-privileges",
-        "--workdir",
-        workspace,
-        "-v",
-        f"{run_repo.resolve()}:{workspace}{run_repo_suffix}",
     ]
+    security_options = dict.fromkeys(("no-new-privileges", *config.security_options))
+    for option in security_options:
+        args.append(f"--security-opt={option}")
+    args.extend(
+        [
+            "--workdir",
+            workspace,
+            "-v",
+            f"{run_repo.resolve()}:{workspace}{run_repo_suffix}",
+        ]
+    )
     for capability in config.capabilities:
         args.append(f"--cap-add={capability}")
     for key, value in driver.env(settings, host_env).items():

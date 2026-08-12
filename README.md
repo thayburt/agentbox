@@ -64,6 +64,18 @@ setting `runtime.capabilities`, for example:
 capabilities = ["SYS_ADMIN", "SYS_CHROOT"]
 ```
 
+Additional Podman security options can be passed through with
+`runtime.security_options`, for example:
+
+```toml
+[runtime]
+security_options = ["unmask=ALL"]
+```
+
+Agentbox always retains `no-new-privileges`; configured options cannot remove
+it. Security options are passed to Podman as written and can materially weaken
+container isolation or expose host resources.
+
 ## Run Harnesses
 
 ```bash

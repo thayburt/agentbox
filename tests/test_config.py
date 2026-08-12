@@ -13,6 +13,7 @@ class ConfigTests(unittest.TestCase):
             config = load_config(Path(tmp))
             self.assertEqual(config.run_store, Path(tmp) / ".agentbox" / "runs")
             self.assertEqual(config.capabilities, ())
+            self.assertEqual(config.security_options, ())
 
     def test_runtime_capabilities_are_normalized_and_deduplicated(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -24,6 +25,18 @@ class ConfigTests(unittest.TestCase):
             config = load_config(root)
 
             self.assertEqual(config.capabilities, ("SYS_ADMIN", "SYS_CHROOT"))
+
+    def test_runtime_security_options_preserve_text_order_and_deduplicate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agentbox.toml").write_text(
+                '[runtime]\nsecurity_options = ["unmask=ALL", " label=disable ", '
+                '"unmask=ALL"]\n'
+            )
+
+            config = load_config(root)
+
+            self.assertEqual(config.security_options, ("unmask=ALL", " label=disable "))
 
     def test_codex_home_prefers_environment(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
@@ -100,6 +113,22 @@ sign_imports = true
             (
                 "[runtime]\ncapabilities = ['SYS-ADMIN']",
                 "runtime.capabilities contains invalid capability",
+            ),
+            (
+                "[runtime]\nsecurity_options = 'unmask=ALL'",
+                "runtime.security_options must be an array of strings",
+            ),
+            (
+                "[runtime]\nsecurity_options = ['unmask=ALL', 1]",
+                "runtime.security_options must be an array of strings",
+            ),
+            (
+                "[runtime]\nsecurity_options = ['']",
+                "runtime.security_options contains invalid security option",
+            ),
+            (
+                "[runtime]\nsecurity_options = ['   ']",
+                "runtime.security_options contains invalid security option",
             ),
             ("[git]\nsign_imports = 'false'", "git.sign_imports must be a boolean"),
             ("[codex]\nimage_name = 1", "codex.image_name must be a string"),
